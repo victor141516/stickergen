@@ -21,6 +21,79 @@ function collectImageFromOutput(output) {
   return null;
 }
 
+function outputItems(event) {
+  return [
+    event?.item,
+    event?.output_item,
+    ...(Array.isArray(event?.output) ? event.output : []),
+    ...(Array.isArray(event?.response?.output) ? event.response.output : []),
+  ].filter(Boolean);
+}
+
+function errorMessage(value) {
+  const candidates = [
+    value?.message,
+    value?.error?.message,
+    typeof value?.error === "string" ? value.error : null,
+    value?.response?.error?.message,
+    typeof value?.response?.error === "string" ? value.response.error : null,
+  ];
+  return candidates.find((candidate) => typeof candidate === "string" && candidate.trim()) || null;
+}
+
+function failureFromEvent(event) {
+  if (event?.type === "error" || event?.type === "response.failed" || event?.response?.status === "failed") {
+    return errorMessage(event) || "Codex could not generate the sticker";
+  }
+
+  const failedImage = outputItems(event).find((item) => (
+    item?.type === "image_generation_call" && (item.status === "failed" || item.error)
+  ));
+  if (failedImage) {
+    const detail = errorMessage(failedImage);
+    return detail ? `Codex image generation failed: ${detail}` : "Codex image generation failed";
+  }
+
+  if (event?.type === "response.incomplete" || event?.response?.status === "incomplete") {
+    const reason = event?.response?.incomplete_details?.reason || event?.incomplete_details?.reason;
+    return reason
+      ? `Codex returned an incomplete response: ${reason}`
+      : "Codex returned an incomplete response";
+  }
+
+  if (event?.type === "response.refusal.done" && typeof event.refusal === "string") {
+    return `Codex refused to generate the sticker: ${event.refusal}`;
+  }
+  return null;
+}
+
+function createDiagnostics() {
+  return { eventTypes: new Set(), responseStatus: null, imageStatus: null };
+}
+
+function recordDiagnostics(diagnostics, event) {
+  if (!diagnostics || !event || typeof event !== "object") return;
+  if (typeof event.type === "string" && diagnostics.eventTypes.size < 20) {
+    diagnostics.eventTypes.add(event.type);
+  }
+  if (typeof event.response?.status === "string") diagnostics.responseStatus = event.response.status;
+  for (const item of outputItems(event)) {
+    if (item?.type === "image_generation_call" && typeof item.status === "string") {
+      diagnostics.imageStatus = item.status;
+    }
+  }
+}
+
+function missingImageError(diagnostics) {
+  const details = [];
+  if (diagnostics?.eventTypes?.size) {
+    details.push(`events: ${[...diagnostics.eventTypes].join(", ")}`);
+  }
+  if (diagnostics?.responseStatus) details.push(`response status: ${diagnostics.responseStatus}`);
+  if (diagnostics?.imageStatus) details.push(`image status: ${diagnostics.imageStatus}`);
+  return new Error(`Codex did not return an image${details.length ? ` (${details.join("; ")})` : ""}`);
+}
+
 function findImageInEvent(event) {
   const candidates = [
     event?.image,
@@ -35,7 +108,7 @@ function findImageInEvent(event) {
   return candidates.find((value) => typeof value === "string" && value.length > 100) || null;
 }
 
-function parseSseFrame(frame) {
+function parseSseFrame(frame, diagnostics) {
   const data = frame
     .split("\n")
     .filter((line) => line.startsWith("data:"))
@@ -49,20 +122,21 @@ function parseSseFrame(frame) {
   } catch {
     throw new Error("Codex returned an invalid SSE event");
   }
-  if (event.type === "response.failed" || event.type === "error") {
-    throw new Error(event.response?.error?.message || event.error?.message || "Codex could not generate the sticker");
-  }
+  recordDiagnostics(diagnostics, event);
+  const failure = failureFromEvent(event);
+  if (failure) throw new Error(failure);
   return { image: findImageInEvent(event) };
 }
 
 function parseSseDocument(text) {
   let image = null;
+  const diagnostics = createDiagnostics();
   const frames = text.replace(/\r\n/g, "\n").split("\n\n");
   for (const frame of frames) {
     if (!frame.trim()) continue;
-    image = parseSseFrame(frame).image || image;
+    image = parseSseFrame(frame, diagnostics).image || image;
   }
-  if (!image) throw new Error("Codex did not return an image");
+  if (!image) throw missingImageError(diagnostics);
   return image;
 }
 
@@ -77,17 +151,22 @@ async function parseResponse(response) {
     } catch {
       throw new Error("Codex returned a response that is neither JSON nor SSE");
     }
+    const diagnostics = createDiagnostics();
+    recordDiagnostics(diagnostics, body);
+    const failure = failureFromEvent(body);
+    if (failure) throw new Error(failure);
     const image = collectImageFromOutput(body.output) || collectImageFromOutput(body.data) || imageValue(body) || findImageInEvent(body);
-    if (!image) throw new Error("Codex did not return an image");
+    if (!image) throw missingImageError(diagnostics);
     return image;
   }
   if (!response.body) throw new Error("Codex returned an empty stream");
   const decoder = new TextDecoder();
   let buffer = "";
   let image = null;
+  const diagnostics = createDiagnostics();
 
   const processFrame = (frame) => {
-    image = parseSseFrame(frame).image || image;
+    image = parseSseFrame(frame, diagnostics).image || image;
   };
 
   for await (const chunk of response.body) {
@@ -101,7 +180,7 @@ async function parseResponse(response) {
   }
   buffer += decoder.decode();
   if (buffer.trim()) processFrame(buffer);
-  if (!image) throw new Error("Codex did not return an image");
+  if (!image) throw missingImageError(diagnostics);
   return image;
 }
 

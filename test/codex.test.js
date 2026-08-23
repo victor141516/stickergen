@@ -74,3 +74,77 @@ test("Codex parser accepts SSE even when the response content type says JSON", a
 
   assert.equal(result, expected);
 });
+
+test("Codex parser surfaces a root-level streaming error message", async () => {
+  const fetchImpl = async () => new Response(
+    `data: ${JSON.stringify({ type: "error", code: "image_failed", message: "The image edit could not be completed" })}\n\n`,
+    { status: 200, headers: { "Content-Type": "text/event-stream" } },
+  );
+
+  await assert.rejects(
+    generateStickerImage({
+      oauth: { accessToken: "test-token", accountId: "account-1" },
+      prompt: "remove the background",
+      fetchImpl,
+    }),
+    /The image edit could not be completed/,
+  );
+});
+
+test("Codex parser surfaces failed image generation tool calls", async () => {
+  const event = {
+    type: "response.output_item.done",
+    item: {
+      type: "image_generation_call",
+      status: "failed",
+      error: { message: "Input image was rejected" },
+    },
+  };
+  const fetchImpl = async () => new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+
+  await assert.rejects(
+    generateStickerImage({
+      oauth: { accessToken: "test-token", accountId: "account-1" },
+      prompt: "remove the background",
+      fetchImpl,
+    }),
+    /Codex image generation failed: Input image was rejected/,
+  );
+});
+
+test("Codex parser reports incomplete responses and safe terminal diagnostics", async () => {
+  const incompleteFetch = async () => new Response(`data: ${JSON.stringify({
+    type: "response.incomplete",
+    response: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } },
+  })}\n\n`, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+  await assert.rejects(
+    generateStickerImage({
+      oauth: { accessToken: "test-token", accountId: "account-1" },
+      prompt: "make a sticker",
+      fetchImpl: incompleteFetch,
+    }),
+    /Codex returned an incomplete response: max_output_tokens/,
+  );
+
+  const emptyFetch = async () => new Response(`data: ${JSON.stringify({
+    type: "response.completed",
+    response: { status: "completed", output: [] },
+  })}\n\ndata: [DONE]\n\n`, {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
+  });
+  await assert.rejects(
+    generateStickerImage({
+      oauth: { accessToken: "test-token", accountId: "account-1" },
+      prompt: "make a sticker",
+      fetchImpl: emptyFetch,
+    }),
+    /events: response.completed; response status: completed/,
+  );
+});
