@@ -39,7 +39,6 @@ registerBotHandlers({
   authService,
   userStore: store,
   downloadTelegramFile,
-  cooldownMs: Number(process.env.GENERATION_COOLDOWN_MS || 5000),
 });
 
 bot.catch((error) => console.error("telegram update failed", error));

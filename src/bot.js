@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { InputFile, InlineKeyboard } from "grammy";
 import { generateStickerImage } from "./codex.js";
 import { stickerDataUrl, toStickerWebp, transparencyStats } from "./stickers.js";
-import { InProcessQueue } from "./queue.js";
 
 const HELP = [
   "I am a Codex-powered sticker bot.",
@@ -102,6 +101,16 @@ export function startStickerChatAction(api, chatId, { messageThreadId, intervalM
   };
 }
 
+export function replyOptions(messageId) {
+  if (!messageId) return {};
+  return {
+    reply_parameters: {
+      message_id: messageId,
+      allow_sending_without_reply: true,
+    },
+  };
+}
+
 function sourceImageFileId(ctx, { includeCurrent = false } = {}) {
   if (includeCurrent) {
     const current = imageFileIdFromMessage(ctx.message, { includeSticker: false });
@@ -115,13 +124,15 @@ export function registerBotHandlers({
   authService,
   userStore,
   downloadTelegramFile,
-  cooldownMs = 5000,
-  queue = new InProcessQueue({ concurrency: 2, maxPending: 100 }),
+  generateImage = generateStickerImage,
+  convertToSticker = toStickerWebp,
+  getTransparencyStats = transparencyStats,
+  sourceToDataUrl = stickerDataUrl,
+  logger = console,
 }) {
   const pendingLogins = new Map();
   const inlineJobs = new Map();
-  const activeUsers = new Set();
-  const lastGeneration = new Map();
+  const credentialLoads = new Map();
 
   const sendLoginRequired = (ctx) => ctx.reply("Link your account with /login first. Each Telegram user has their own OpenAI session.");
 
@@ -134,63 +145,92 @@ export function registerBotHandlers({
   }
 
   async function loadCredentials(id) {
-    const record = id && userStore.get(id);
-    if (!record?.sessionToken) return null;
-    try {
-      const credentials = await authService.credentials(record.sessionToken);
-      if (credentials.refreshedToken) {
-        await userStore.setSession(id, credentials.refreshedToken, authService.publicIdentity(credentials.oauth));
+    const existing = credentialLoads.get(id);
+    if (existing) return existing;
+    const load = (async () => {
+      const record = id && userStore.get(id);
+      if (!record?.sessionToken) return null;
+      try {
+        const credentials = await authService.credentials(record.sessionToken);
+        if (credentials.refreshedToken) {
+          await userStore.setSession(id, credentials.refreshedToken, authService.publicIdentity(credentials.oauth));
+        }
+        return credentials.oauth;
+      } catch (error) {
+        await userStore.clear(id);
+        throw error;
       }
-      return credentials.oauth;
-    } catch (error) {
-      await userStore.clear(id);
-      throw error;
+    })();
+    credentialLoads.set(id, load);
+    try {
+      return await load;
+    } finally {
+      if (credentialLoads.get(id) === load) credentialLoads.delete(id);
     }
   }
 
-  async function processStickerJob({ id, chatId, statusMessageId, prompt, sourceFileId, stopChatAction }) {
+  async function processStickerJob({
+    id,
+    chatId,
+    statusMessageId,
+    replyToMessageId,
+    prompt,
+    sourceFileId,
+    stopChatAction,
+  }) {
     const generationId = randomUUID();
     try {
       const oauth = await loadCredentials(id);
       if (!oauth) {
-        await bot.api.sendMessage(chatId, "Link your account with /login first. Each Telegram user has their own OpenAI session.");
+        await bot.api.sendMessage(
+          chatId,
+          "Link your account with /login first. Each Telegram user has their own OpenAI session.",
+          replyOptions(replyToMessageId),
+        );
         return;
       }
 
       let sourceDataUrl = null;
       if (sourceFileId) {
         const source = await downloadTelegramFile(sourceFileId);
-        sourceDataUrl = await stickerDataUrl(source);
+        sourceDataUrl = await sourceToDataUrl(source);
       }
 
-      console.info("sticker_generation_started", JSON.stringify({
+      logger.info("sticker_generation_started", JSON.stringify({
         generationId,
         sourceImage: Boolean(sourceFileId),
         prompt: prompt.slice(0, 1000),
       }));
-      const rawImage = await generateStickerImage({ oauth, prompt, sourceDataUrl });
-      const generatedTransparency = await transparencyStats(rawImage);
-      console.info("sticker_generation_output", JSON.stringify({
+      const rawImage = await generateImage({ oauth, prompt, sourceDataUrl });
+      const generatedTransparency = await getTransparencyStats(rawImage);
+      logger.info("sticker_generation_output", JSON.stringify({
         generationId,
         ...generatedTransparency,
       }));
-      const webp = await toStickerWebp(rawImage);
-      const webpTransparency = await transparencyStats(webp);
+      const webp = await convertToSticker(rawImage);
+      const webpTransparency = await getTransparencyStats(webp);
       await bot.api.sendSticker(chatId, new InputFile(webp, "sticker.webp"), {
-        reply_parameters: { message_id: statusMessageId },
+        ...replyOptions(replyToMessageId),
       });
-      console.info("sticker_generation_sent", JSON.stringify({
+      logger.info("sticker_generation_sent", JSON.stringify({
         generationId,
         stickerBytes: webp.length,
         ...webpTransparency,
       }));
     } catch (error) {
       const message = error?.message || "unknown error";
-      console.error("sticker_generation_failed", JSON.stringify({ generationId, error: message }));
-      await bot.api.sendMessage(chatId, `I could not generate the sticker: ${message}`);
+      logger.error("sticker_generation_failed", JSON.stringify({ generationId, error: message }));
+      try {
+        await bot.api.sendMessage(
+          chatId,
+          `I could not generate the sticker: ${message}`,
+          replyOptions(replyToMessageId),
+        );
+      } catch (sendError) {
+        logger.error("sticker_generation_error_message_failed", sendError?.message || sendError);
+      }
     } finally {
       stopChatAction?.();
-      activeUsers.delete(id);
       try { await bot.api.deleteMessage(chatId, statusMessageId); } catch {}
     }
   }
@@ -203,19 +243,19 @@ export function registerBotHandlers({
       const oauth = await loadCredentials(job.userId);
       if (!oauth) throw new Error("Link your account with /login in the bot's private chat first.");
 
-      console.info("inline_sticker_generation_started", JSON.stringify({
+      logger.info("inline_sticker_generation_started", JSON.stringify({
         generationId,
         jobId,
         prompt: job.prompt.slice(0, 1000),
       }));
-      const rawImage = await generateStickerImage({ oauth, prompt: job.prompt });
-      const generatedTransparency = await transparencyStats(rawImage);
-      console.info("inline_sticker_generation_output", JSON.stringify({
+      const rawImage = await generateImage({ oauth, prompt: job.prompt });
+      const generatedTransparency = await getTransparencyStats(rawImage);
+      logger.info("inline_sticker_generation_output", JSON.stringify({
         generationId,
         jobId,
         ...generatedTransparency,
       }));
-      const webp = await toStickerWebp(rawImage);
+      const webp = await convertToSticker(rawImage);
 
       // Inline messages cannot upload new files while being edited. Upload the
       // sticker silently to the user's private chat to obtain a reusable file_id.
@@ -246,14 +286,14 @@ export function registerBotHandlers({
           caption: "Sticker generated. Tap below to send it as a native sticker.",
         }, { reply_markup: replyMarkup });
       } catch (mediaError) {
-        console.warn("inline sticker could not replace placeholder as media", mediaError?.message || mediaError);
+        logger.warn("inline sticker could not replace placeholder as media", mediaError?.message || mediaError);
         await bot.api.editMessageTextInline(
           inlineMessageId,
           "✅ Sticker generated. Tap below to insert it as a native sticker.",
           { reply_markup: replyMarkup },
         );
       }
-      console.info("inline_sticker_generation_ready", JSON.stringify({
+      logger.info("inline_sticker_generation_ready", JSON.stringify({
         generationId,
         jobId,
         stickerBytes: webp.length,
@@ -261,12 +301,10 @@ export function registerBotHandlers({
     } catch (error) {
       const message = error?.message || "unknown error";
       job.status = "failed";
-      console.error("inline_sticker_generation_failed", JSON.stringify({ generationId, jobId, error: message }));
+      logger.error("inline_sticker_generation_failed", JSON.stringify({ generationId, jobId, error: message }));
       try {
         await bot.api.editMessageTextInline(inlineMessageId, `I could not generate the sticker: ${message}`);
       } catch {}
-    } finally {
-      activeUsers.delete(job.userId);
     }
   }
 
@@ -277,42 +315,26 @@ export function registerBotHandlers({
       await ctx.reply("Write a description. Example: /sticker an astronaut fox with a transparent helmet");
       return;
     }
-    const now = Date.now();
-    const previous = lastGeneration.get(id) || 0;
-    if (now - previous < cooldownMs) {
-      await ctx.reply(`Wait ${Math.ceil((cooldownMs - (now - previous)) / 1000)} seconds before requesting another sticker.`);
-      return;
-    }
-    if (activeUsers.has(id)) {
-      await ctx.reply("I am already generating a sticker for you. I will send it as soon as it is ready.");
-      return;
-    }
-
     const record = userStore.get(id);
     if (!record?.sessionToken) {
       await sendLoginRequired(ctx);
       return;
     }
 
-    const status = await ctx.reply("Generating your sticker…");
+    const replyToMessageId = ctx.message?.message_id;
+    const status = await ctx.reply("Generating your sticker…", replyOptions(replyToMessageId));
     const stopChatAction = startStickerChatAction(ctx.api, ctx.chat.id, {
       messageThreadId: ctx.message?.message_thread_id,
     });
-    activeUsers.add(id);
-    lastGeneration.set(id, now);
-    if (!queue.enqueue(() => processStickerJob({
+    void processStickerJob({
       id,
       chatId: ctx.chat.id,
       statusMessageId: status.message_id,
+      replyToMessageId,
       prompt: prompt.trim(),
       sourceFileId,
       stopChatAction,
-    }))) {
-      stopChatAction();
-      activeUsers.delete(id);
-      try { await ctx.api.deleteMessage(ctx.chat.id, status.message_id); } catch {}
-      await ctx.reply("There are too many generations in the queue. Try again in a few minutes.");
-    }
+    }).catch((error) => logger.error("detached_sticker_generation_failed", error));
   }
 
   async function pollLogin(id, chatId, messageId, loginId) {
@@ -440,8 +462,8 @@ export function registerBotHandlers({
       await ctx.answerCallbackQuery({ text: "Only the person who created this placeholder can generate the sticker.", show_alert: true });
       return;
     }
-    if (job.status === "running" || activeUsers.has(id)) {
-      await ctx.answerCallbackQuery({ text: "I am already generating a sticker for you." });
+    if (job.status === "running") {
+      await ctx.answerCallbackQuery({ text: "This sticker is already being generated." });
       return;
     }
     if (job.status === "ready") {
@@ -450,14 +472,10 @@ export function registerBotHandlers({
     }
 
     job.status = "running";
-    activeUsers.add(id);
     await ctx.answerCallbackQuery({ text: "Generating sticker…" });
     await bot.api.editMessageTextInline(inlineMessageId, "⏳ Generating sticker…");
-    if (!queue.enqueue(() => processInlineStickerJob({ jobId, inlineMessageId }))) {
-      activeUsers.delete(id);
-      job.status = "pending";
-      await bot.api.editMessageTextInline(inlineMessageId, "There are too many generations in the queue. Try again.");
-    }
+    void processInlineStickerJob({ jobId, inlineMessageId })
+      .catch((error) => logger.error("detached_inline_sticker_generation_failed", error));
   });
 
   bot.command("sticker", async (ctx) => {
@@ -498,5 +516,5 @@ export function registerBotHandlers({
     await createSticker(ctx, mentionedPrompt || caption || DEFAULT_PHOTO_PROMPT, sourceFileId);
   });
 
-  return { pendingLogins, inlineJobs, queue };
+  return { pendingLogins, inlineJobs };
 }

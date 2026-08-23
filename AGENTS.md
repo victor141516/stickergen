@@ -21,7 +21,6 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - `src/auth.js`: Codex device login, refresh, identity extraction, and encrypted JWE sessions.
 - `src/codex.js`: private Codex Responses request and JSON/SSE response parsing.
 - `src/stickers.js`: image decoding and the technical WebP conversion required by Telegram.
-- `src/queue.js`: bounded in-process concurrency. Keep the queue inside this process.
 - `src/store.js`: JSON-backed per-Telegram-user session store.
 - `test/`: Node test-runner coverage for the modules above.
 
@@ -32,7 +31,10 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - Preserve alpha when OpenAI returns alpha. Opaque OpenAI images must remain valid and be sent.
 - Limit local image work to decoding, orientation, resizing, WebP encoding, and compression needed for Telegram's static sticker limits.
 - Keep authentication isolated per Telegram user. Never reuse one user's Codex session for another user.
-- Keep generation concurrency in `InProcessQueue`; do not add Redis, RabbitMQ, or another external queue.
+- Start each generation as an independent asynchronous job. Do not serialize requests or add an internal or external queue.
+- Allow multiple concurrent generations from the same Telegram user.
+- Coalesce overlapping credential refreshes per user so concurrent generations do not rotate the same refresh token twice.
+- In regular chats, reply with the generated sticker to the user's original request when its message ID is available.
 - Inline queries do not contain the replied-to Telegram message. Do not claim inline editing can access that image when the bot is absent from the chat.
 - Group free-text handling must require a mention so the bot does not intercept unrelated conversation.
 - Keep `choose_sticker` refreshed while a normal chat generation is pending and stop it on every completion or failure path.
@@ -55,11 +57,11 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 
 ## Testing expectations
 
-- Add or update focused tests for every routing, parsing, queue, authentication, or image-conversion change.
+- Add or update focused tests for every routing, parsing, concurrency, authentication, or image-conversion change.
 - Mock OpenAI and Telegram for normal tests.
 - Confirm both transparent and opaque inputs remain valid through `toStickerWebp`.
 - Keep SSE coverage for correct content types and mislabeled JSON responses.
-- Verify timers and queue jobs are always released on success, rejection, and error paths.
+- Verify chat-action timers and detached generation promises are always handled on success, rejection, and error paths.
 
 ## Documentation and deployment
 

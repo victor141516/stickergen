@@ -30,7 +30,7 @@ StickerGen links each Telegram user to their own OpenAI/Codex session, generates
 | 👥 | Work in groups through commands, replies, and mentions |
 | ⚡ | Generate in any chat with `@stickergen_miramacho_bot <prompt>` |
 | 🔐 | Keep a separate encrypted Codex session for every user |
-| 🧵 | Process long-running generations in a bounded in-process queue |
+| 🧵 | Run multiple sticker generations concurrently |
 | 🐳 | Deploy as a single Docker service behind an HTTPS webhook |
 
 ## 💬 How to use it
@@ -62,14 +62,15 @@ Choose **Generate sticker**, tap the placeholder button, and wait for the result
 flowchart LR
     T["Telegram<br/>private · groups · inline"]
     W["HTTPS webhook<br/>grammY"]
-    Q["In-process queue<br/>bounded concurrency"]
     C["Codex Responses<br/>user session"]
     S["WebP conversion<br/>Sharp"]
 
-    T --> W --> Q --> C --> S --> T
+    T --> W --> C --> S --> T
 ```
 
-Each request is generated exactly once. StickerGen does not crop subjects, remove backgrounds, or otherwise alter visual content locally. It only performs the technical conversion needed to satisfy Telegram's sticker limits. If OpenAI returns an image with transparency, the WebP output preserves its alpha channel; opaque images are sent as well.
+Each request starts its own asynchronous generation, so several stickers can be generated concurrently, including multiple requests from the same user. StickerGen generates each request exactly once and does not crop subjects, remove backgrounds, or otherwise alter visual content locally. It only performs the technical conversion needed to satisfy Telegram's sticker limits. If OpenAI returns an image with transparency, the WebP output preserves its alpha channel; opaque images are sent as well.
+
+In regular chats, the generated sticker replies to the user's original request so concurrent results remain easy to match. Telegram inline mode does not expose an original chat message to reply to, so inline results continue through their placeholder flow.
 
 While a normal chat request is running, Telegram displays the **choosing a sticker** action. The bot refreshes it until the job completes or fails.
 
@@ -112,7 +113,6 @@ Complete `.env` before starting the application:
 | `PUBLIC_BASE_URL` | Public HTTPS origin for the webhook |
 | `TELEGRAM_WEBHOOK_SECRET` | Secret used to authenticate Telegram webhook calls |
 | `CODEX_MODEL` | Primary model that orchestrates image generation |
-| `GENERATION_COOLDOWN_MS` | Minimum delay between requests from the same user |
 
 Generate secrets with a cryptographically secure tool. Do not reuse the bot token as a session or webhook secret.
 
@@ -122,7 +122,7 @@ Generate secrets with a cryptographically secure tool. Do not reuse the bot toke
 npm test
 ```
 
-The test suite covers encrypted sessions, media handling, mentions, inline mode, SSE streaming, the internal queue, and WebP conversion for both transparent and opaque images.
+The test suite covers encrypted sessions, media handling, mentions, reply metadata, inline mode, SSE streaming, and WebP conversion for both transparent and opaque images.
 
 The E2E script at `src/e2e-test.js` consumes a real generation and sends a sticker to the only stored user. Do not run it in CI or without explicit authorization.
 
@@ -143,7 +143,6 @@ src/
 ├── bot.js        # commands, mentions, inline mode, and jobs
 ├── codex.js      # Responses client and SSE parser
 ├── index.js      # HTTP server and Telegram webhook
-├── queue.js      # bounded in-process queue
 ├── stickers.js   # Telegram-compatible conversion
 └── store.js      # session storage
 ```
