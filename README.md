@@ -80,7 +80,8 @@ While a normal chat request is running, Telegram displays the **choosing a stick
 - Tokens are stored as encrypted JWE values in `DATA_DIR/users.json`.
 - `SESSION_SECRET` must remain stable across restarts to preserve linked sessions.
 - Images and credentials are never written to logs.
-- Generation logs contain only the prompt, an identifier, and technical image statistics.
+- Successful generation logs contain only the prompt, an identifier, and technical image statistics.
+- Failed Codex calls emit a sanitized request/response trace for debugging. Tokens and account identifiers are redacted, while image payloads are replaced with their media type, size, and SHA-256 hash.
 
 > [!IMPORTANT]
 > Signing in with a ChatGPT/Codex account uses private Codex-compatible endpoints. They are not part of the public OpenAI API contract and may change without notice.

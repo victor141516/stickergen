@@ -1,6 +1,117 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 const DEFAULT_URL = "https://chatgpt.com/backend-api/codex/responses";
+const REDACTED_KEYS = new Set([
+  "access_token",
+  "authorization",
+  "cookie",
+  "encrypted_content",
+  "refresh_token",
+  "session_token",
+]);
+const IMAGE_VALUE_KEYS = new Set([
+  "b64_json",
+  "image_base64",
+  "image_url",
+  "partial_image_b64",
+  "result",
+  "url",
+]);
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function summarizedValue(value, kind) {
+  return {
+    redacted: kind,
+    characters: value.length,
+    sha256: sha256(value),
+  };
+}
+
+function summarizedImageValue(value) {
+  const summary = summarizedValue(value, "image data");
+  const dataUrl = value.match(/^data:([^;,]+)(?:;base64)?,(.*)$/s);
+  if (!dataUrl) return summary;
+  return {
+    ...summary,
+    mediaType: dataUrl[1],
+    encodedCharacters: dataUrl[2].length,
+  };
+}
+
+function sanitizedUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return summarizedValue(value, "unparseable URL");
+  }
+}
+
+function sanitizeForLog(value, key = "", depth = 0) {
+  const normalizedKey = key.toLowerCase();
+  if (REDACTED_KEYS.has(normalizedKey)) return { redacted: normalizedKey };
+  if (typeof value === "string") {
+    if (IMAGE_VALUE_KEYS.has(normalizedKey)) {
+      if (/^https?:\/\//i.test(value)) return sanitizedUrl(value);
+      return summarizedImageValue(value);
+    }
+    if (value.length > 2_000) {
+      return { preview: value.slice(0, 2_000), ...summarizedValue(value, "long text") };
+    }
+    return value;
+  }
+  if (value === null || typeof value !== "object") return value;
+  if (depth >= 12) return { redacted: "maximum trace depth" };
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForLog(item, key, depth + 1));
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([childKey, childValue]) => [
+      childKey,
+      sanitizeForLog(childValue, childKey, depth + 1),
+    ]),
+  );
+}
+
+function safeResponseHeaders(headers) {
+  const names = [
+    "content-type",
+    "openai-request-id",
+    "x-request-id",
+    "x-envoy-upstream-service-time",
+  ];
+  return Object.fromEntries(
+    names.map((name) => [name, headers.get(name)]).filter(([, value]) => value),
+  );
+}
+
+function createRequestTrace({ requestId, url, payload, accountId }) {
+  return {
+    requestId,
+    request: {
+      method: "POST",
+      url: sanitizedUrl(url),
+      headers: {
+        accept: "application/json, text/event-stream",
+        authorization: { redacted: "bearer token" },
+        "chatgpt-account-id": summarizedValue(String(accountId || ""), "account identifier"),
+        "content-type": "application/json",
+        originator: "telegram-sticker-bot",
+        "session-id": requestId,
+        "user-agent": "telegram-sticker-bot/0.1",
+      },
+      body: sanitizeForLog(payload),
+    },
+    response: {
+      status: null,
+      headers: {},
+      events: [],
+    },
+  };
+}
 
 function imageValue(value) {
   if (typeof value === "string") return value;
@@ -51,6 +162,8 @@ function errorCode(value) {
 }
 
 function outputMessage(event) {
+  const directText = event?.text || event?.part?.text || event?.part?.refusal;
+  if (typeof directText === "string" && directText.trim()) return directText.trim().slice(0, 500);
   for (const item of outputItems(event)) {
     if (item?.type !== "message" || !Array.isArray(item.content)) continue;
     for (const part of item.content) {
@@ -136,7 +249,7 @@ function findImageInEvent(event) {
   return candidates.find((value) => typeof value === "string" && value.length > 100) || null;
 }
 
-function parseSseFrame(frame, diagnostics) {
+function parseSseFrame(frame, diagnostics, trace) {
   const data = frame
     .split("\n")
     .filter((line) => line.startsWith("data:"))
@@ -148,37 +261,43 @@ function parseSseFrame(frame, diagnostics) {
   try {
     event = JSON.parse(data);
   } catch {
+    trace?.response.events.push({
+      invalidJson: summarizedValue(data, "invalid SSE data"),
+    });
     throw new Error("Codex returned an invalid SSE event");
   }
+  trace?.response.events.push(sanitizeForLog(event));
   recordDiagnostics(diagnostics, event);
   const failure = failureFromEvent(event);
   if (failure) throw new Error(failure);
   return { image: findImageInEvent(event) };
 }
 
-function parseSseDocument(text) {
+function parseSseDocument(text, trace) {
   let image = null;
   const diagnostics = createDiagnostics();
   const frames = text.replace(/\r\n/g, "\n").split("\n\n");
   for (const frame of frames) {
     if (!frame.trim()) continue;
-    image = parseSseFrame(frame, diagnostics).image || image;
+    image = parseSseFrame(frame, diagnostics, trace).image || image;
   }
   if (!image) throw missingImageError(diagnostics);
   return image;
 }
 
-async function parseResponse(response) {
+async function parseResponse(response, trace) {
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("text/event-stream")) {
     const text = await response.text();
-    if (/^\s*(?:event|data):/i.test(text)) return parseSseDocument(text);
+    if (/^\s*(?:event|data):/i.test(text)) return parseSseDocument(text, trace);
     let body;
     try {
       body = JSON.parse(text);
     } catch {
+      trace.response.body = summarizedValue(text, "non-JSON response body");
       throw new Error("Codex returned a response that is neither JSON nor SSE");
     }
+    trace.response.body = sanitizeForLog(body);
     const diagnostics = createDiagnostics();
     recordDiagnostics(diagnostics, body);
     const failure = failureFromEvent(body);
@@ -194,7 +313,7 @@ async function parseResponse(response) {
   const diagnostics = createDiagnostics();
 
   const processFrame = (frame) => {
-    image = parseSseFrame(frame, diagnostics).image || image;
+    image = parseSseFrame(frame, diagnostics, trace).image || image;
   };
 
   for await (const chunk of response.body) {
@@ -218,8 +337,7 @@ function imageInput(prompt, sourceDataUrl) {
   return [{ type: "message", role: "user", content }];
 }
 
-function requestPayload(prompt, sourceDataUrl, model) {
-  const sessionId = randomUUID();
+function requestPayload(prompt, sourceDataUrl, model, sessionId = randomUUID()) {
   return {
     model,
     instructions: "Create a single Telegram sticker image. Follow the user's requested subject, style, and background. If the user requests transparency, use genuine alpha pixels rather than drawing a gray-and-white checkerboard or transparency preview. Do not add a border or text unless the user explicitly asks for it. Return only the generated image.",
@@ -235,26 +353,51 @@ function requestPayload(prompt, sourceDataUrl, model) {
   };
 }
 
-export async function generateStickerImage({ oauth, prompt, sourceDataUrl, fetchImpl = fetch }) {
+export async function generateStickerImage({
+  oauth,
+  prompt,
+  sourceDataUrl,
+  fetchImpl = fetch,
+  logger = console,
+}) {
   const url = process.env.CODEX_RESPONSES_URL || DEFAULT_URL;
   const model = process.env.CODEX_MODEL || "gpt-5.6-sol";
-  const sessionId = randomUUID();
-  const response = await fetchImpl(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${oauth.accessToken}`,
-      "ChatGPT-Account-Id": oauth.accountId,
-      "Content-Type": "application/json",
-      Accept: "application/json, text/event-stream",
-      originator: "telegram-sticker-bot",
-      "session-id": sessionId,
-      "User-Agent": "telegram-sticker-bot/0.1",
-    },
-    body: JSON.stringify(requestPayload(prompt, sourceDataUrl, model)),
-  });
-  if (!response.ok) {
-    const detail = (await response.text()).slice(0, 500);
-    throw new Error(`Codex rejected the generation request (${response.status})${detail ? `: ${detail}` : ""}`);
+  const requestId = randomUUID();
+  const payload = requestPayload(prompt, sourceDataUrl, model, requestId);
+  const trace = createRequestTrace({ requestId, url, payload, accountId: oauth.accountId });
+  try {
+    const response = await fetchImpl(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${oauth.accessToken}`,
+        "ChatGPT-Account-Id": oauth.accountId,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        originator: "telegram-sticker-bot",
+        "session-id": requestId,
+        "User-Agent": "telegram-sticker-bot/0.1",
+      },
+      body: JSON.stringify(payload),
+    });
+    trace.response.status = response.status;
+    trace.response.headers = safeResponseHeaders(response.headers);
+    if (!response.ok) {
+      const detail = await response.text();
+      try {
+        trace.response.body = sanitizeForLog(JSON.parse(detail));
+      } catch {
+        trace.response.body = sanitizeForLog(detail);
+      }
+      throw new Error(`Codex rejected the generation request (${response.status})${detail ? `: ${detail.slice(0, 500)}` : ""}`);
+    }
+    return await parseResponse(response, trace);
+  } catch (error) {
+    const failure = error instanceof Error ? error : new Error(String(error));
+    failure.codexRequestId = requestId;
+    trace.failure = { name: failure.name, message: failure.message };
+    try {
+      logger.error("codex_request_failed_trace", JSON.stringify(trace));
+    } catch {}
+    throw failure;
   }
-  return parseResponse(response);
 }

@@ -219,7 +219,11 @@ export function registerBotHandlers({
       }));
     } catch (error) {
       const message = error?.message || "unknown error";
-      logger.error("sticker_generation_failed", JSON.stringify({ generationId, error: message }));
+      logger.error("sticker_generation_failed", JSON.stringify({
+        generationId,
+        codexRequestId: error?.codexRequestId || null,
+        error: message,
+      }));
       try {
         await bot.api.sendMessage(
           chatId,
@@ -301,7 +305,12 @@ export function registerBotHandlers({
     } catch (error) {
       const message = error?.message || "unknown error";
       job.status = "failed";
-      logger.error("inline_sticker_generation_failed", JSON.stringify({ generationId, jobId, error: message }));
+      logger.error("inline_sticker_generation_failed", JSON.stringify({
+        generationId,
+        jobId,
+        codexRequestId: error?.codexRequestId || null,
+        error: message,
+      }));
       try {
         await bot.api.editMessageTextInline(inlineMessageId, `I could not generate the sticker: ${message}`);
       } catch {}

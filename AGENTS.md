@@ -46,6 +46,7 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - Use stable, machine-searchable English event names for structured logs.
 - Prefer dependency injection for networked code so behavior can be unit tested without Telegram or OpenAI.
 - Preserve existing error context while avoiding tokens, authorization headers, image payloads, and session blobs in logs.
+- Keep a temporary sanitized trace for each Codex call. Log the full trace only on failure; discard it after successful calls. Replace image data with metadata and a hash, and redact credentials and account identifiers.
 
 ## Security and secrets
 
