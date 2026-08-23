@@ -7,16 +7,16 @@ import { registerBotHandlers } from "./bot.js";
 import { UserStore } from "./store.js";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
-if (!token) throw new Error("TELEGRAM_BOT_TOKEN es obligatorio");
+if (!token) throw new Error("TELEGRAM_BOT_TOKEN is required");
 
 const publicBaseUrl = process.env.PUBLIC_BASE_URL?.replace(/\/$/, "");
 const webhookPath = process.env.TELEGRAM_WEBHOOK_PATH || "/telegram/webhook";
 const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
-if (!publicBaseUrl) throw new Error("PUBLIC_BASE_URL es obligatorio para usar el webhook");
-if (!webhookSecret) throw new Error("TELEGRAM_WEBHOOK_SECRET es obligatorio para usar el webhook");
+if (!publicBaseUrl) throw new Error("PUBLIC_BASE_URL is required to use the webhook");
+if (!webhookSecret) throw new Error("TELEGRAM_WEBHOOK_SECRET is required to use the webhook");
 
 const secret = process.env.SESSION_SECRET || createDevelopmentSecret();
-if (!process.env.SESSION_SECRET) console.warn("SESSION_SECRET no está definido; las sesiones se invalidarán al reiniciar");
+if (!process.env.SESSION_SECRET) console.warn("SESSION_SECRET is not set; sessions will be invalidated after a restart");
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dataDir = process.env.DATA_DIR || path.join(root, "data");
@@ -28,9 +28,9 @@ const bot = new Bot(token);
 
 async function downloadTelegramFile(fileId) {
   const file = await bot.api.getFile(fileId);
-  if (!file.file_path) throw new Error("Telegram no devolvió la ruta del archivo");
+  if (!file.file_path) throw new Error("Telegram did not return a file path");
   const response = await fetch(`https://api.telegram.org/file/bot${token}/${file.file_path}`);
-  if (!response.ok) throw new Error(`Descarga de Telegram falló (${response.status})`);
+  if (!response.ok) throw new Error(`Telegram download failed (${response.status})`);
   return Buffer.from(await response.arrayBuffer());
 }
 

@@ -5,21 +5,21 @@ import { stickerDataUrl, toStickerWebp, transparencyStats } from "./stickers.js"
 import { InProcessQueue } from "./queue.js";
 
 const HELP = [
-  "Soy un bot de stickers con Codex.",
+  "I am a Codex-powered sticker bot.",
   "",
-  "/login — enlaza tu cuenta de OpenAI/Codex",
-  "/sticker <descripción> — crea un sticker",
-  "/edit <cambio> — responde a un sticker o foto para modificarlo",
-  "/whoami — muestra la cuenta enlazada",
-  "/logout — elimina tu sesión de este bot",
+  "/login — link your OpenAI/Codex account",
+  "/sticker <description> — create a sticker",
+  "/edit <change> — reply to a sticker or photo to edit it",
+  "/whoami — show the linked account",
+  "/logout — remove your session from this bot",
   "",
-  "También puedes enviar una foto, con o sin instrucciones en el caption.",
-  "En un grupo, responde a una foto o sticker con /edit y tu petición.",
-  "También puedes responder a una imagen con @nombre_del_bot <instrucciones>.",
+  "You can also send a photo, with or without instructions in its caption.",
+  "In a group, reply to a photo or sticker with /edit and your request.",
+  "You can also reply to an image with @bot_username <instructions>.",
 ].join("\n");
 
 const DEFAULT_PHOTO_PROMPT =
-  "Convierte el sujeto principal de esta foto en un sticker de Telegram fiel y reconocible. Elimina el fondo, conserva los rasgos importantes y usa un contorno limpio y expresivo.";
+  "Turn the main subject of this photo into a faithful and recognizable Telegram sticker. Remove the background, preserve important features, and use a clean, expressive outline.";
 
 const INLINE_JOB_TTL_MS = 60 * 60 * 1000;
 
@@ -28,7 +28,7 @@ function userId(ctx) {
 }
 
 function displayName(ctx) {
-  return ctx.from?.first_name || ctx.from?.username || "usuario";
+  return ctx.from?.first_name || ctx.from?.username || "there";
 }
 
 export function imageFileIdFromMessage(message, { includeSticker = true } = {}) {
@@ -48,7 +48,7 @@ export function promptFromBotMention(text, botUsername) {
     .replace(mention, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/^[,;:!¡?¿\-–—]+\s*/, "")
+    .replace(/^[,;:!?\-–—]+\s*/, "")
     .trim();
 }
 
@@ -56,14 +56,14 @@ export function inlinePlaceholderResult(jobId, prompt) {
   return {
     type: "article",
     id: jobId,
-    title: "Generar sticker",
+    title: "Generate sticker",
     description: prompt.slice(0, 100),
     input_message_content: {
-      message_text: `🎨 ${prompt}\n\nPulsa «Generar sticker» para empezar.`,
+      message_text: `🎨 ${prompt}\n\nTap “Generate sticker” to begin.`,
     },
     reply_markup: {
       inline_keyboard: [[{
-        text: "Generar sticker",
+        text: "Generate sticker",
         callback_data: `inline:${jobId}`,
       }]],
     },
@@ -123,7 +123,7 @@ export function registerBotHandlers({
   const activeUsers = new Set();
   const lastGeneration = new Map();
 
-  const sendLoginRequired = (ctx) => ctx.reply("Primero enlaza tu cuenta con /login. Cada usuario de Telegram tiene su propia sesión de OpenAI.");
+  const sendLoginRequired = (ctx) => ctx.reply("Link your account with /login first. Each Telegram user has their own OpenAI session.");
 
   function pruneInlineJobs() {
     const now = Date.now();
@@ -153,7 +153,7 @@ export function registerBotHandlers({
     try {
       const oauth = await loadCredentials(id);
       if (!oauth) {
-        await bot.api.sendMessage(chatId, "Primero enlaza tu cuenta con /login. Cada usuario de Telegram tiene su propia sesión de OpenAI.");
+        await bot.api.sendMessage(chatId, "Link your account with /login first. Each Telegram user has their own OpenAI session.");
         return;
       }
 
@@ -185,9 +185,9 @@ export function registerBotHandlers({
         ...webpTransparency,
       }));
     } catch (error) {
-      const message = error?.message || "error desconocido";
+      const message = error?.message || "unknown error";
       console.error("sticker_generation_failed", JSON.stringify({ generationId, error: message }));
-      await bot.api.sendMessage(chatId, `No pude generar el sticker: ${message}`);
+      await bot.api.sendMessage(chatId, `I could not generate the sticker: ${message}`);
     } finally {
       stopChatAction?.();
       activeUsers.delete(id);
@@ -201,7 +201,7 @@ export function registerBotHandlers({
     const generationId = randomUUID();
     try {
       const oauth = await loadCredentials(job.userId);
-      if (!oauth) throw new Error("Primero enlaza tu cuenta con /login en el chat privado del bot.");
+      if (!oauth) throw new Error("Link your account with /login in the bot's private chat first.");
 
       console.info("inline_sticker_generation_started", JSON.stringify({
         generationId,
@@ -225,7 +225,7 @@ export function registerBotHandlers({
         { disable_notification: true },
       );
       const stickerFileId = cachedMessage.sticker?.file_id;
-      if (!stickerFileId) throw new Error("Telegram no devolvió un identificador para el sticker inline");
+      if (!stickerFileId) throw new Error("Telegram did not return an identifier for the inline sticker");
       try { await bot.api.deleteMessage(job.userId, cachedMessage.message_id); } catch {}
 
       job.status = "ready";
@@ -234,7 +234,7 @@ export function registerBotHandlers({
       const readyQuery = `ready:${jobId}`;
       const replyMarkup = {
         inline_keyboard: [[{
-          text: "Enviar como sticker",
+          text: "Send as sticker",
           switch_inline_query_current_chat: readyQuery,
         }]],
       };
@@ -243,13 +243,13 @@ export function registerBotHandlers({
         await bot.api.editMessageMediaInline(inlineMessageId, {
           type: "document",
           media: stickerFileId,
-          caption: "Sticker generado. Pulsa abajo para enviarlo como sticker nativo.",
+          caption: "Sticker generated. Tap below to send it as a native sticker.",
         }, { reply_markup: replyMarkup });
       } catch (mediaError) {
         console.warn("inline sticker could not replace placeholder as media", mediaError?.message || mediaError);
         await bot.api.editMessageTextInline(
           inlineMessageId,
-          "✅ Sticker generado. Pulsa abajo para insertarlo como sticker nativo.",
+          "✅ Sticker generated. Tap below to insert it as a native sticker.",
           { reply_markup: replyMarkup },
         );
       }
@@ -259,11 +259,11 @@ export function registerBotHandlers({
         stickerBytes: webp.length,
       }));
     } catch (error) {
-      const message = error?.message || "error desconocido";
+      const message = error?.message || "unknown error";
       job.status = "failed";
       console.error("inline_sticker_generation_failed", JSON.stringify({ generationId, jobId, error: message }));
       try {
-        await bot.api.editMessageTextInline(inlineMessageId, `No pude generar el sticker: ${message}`);
+        await bot.api.editMessageTextInline(inlineMessageId, `I could not generate the sticker: ${message}`);
       } catch {}
     } finally {
       activeUsers.delete(job.userId);
@@ -274,17 +274,17 @@ export function registerBotHandlers({
     const id = userId(ctx);
     if (!id) return;
     if (!prompt?.trim()) {
-      await ctx.reply("Escribe una descripción. Ejemplo: /sticker un zorro astronauta con casco transparente");
+      await ctx.reply("Write a description. Example: /sticker an astronaut fox with a transparent helmet");
       return;
     }
     const now = Date.now();
     const previous = lastGeneration.get(id) || 0;
     if (now - previous < cooldownMs) {
-      await ctx.reply(`Espera ${Math.ceil((cooldownMs - (now - previous)) / 1000)} s antes de pedir otro sticker.`);
+      await ctx.reply(`Wait ${Math.ceil((cooldownMs - (now - previous)) / 1000)} seconds before requesting another sticker.`);
       return;
     }
     if (activeUsers.has(id)) {
-      await ctx.reply("Ya estoy generando un sticker para ti. Te lo envío en cuanto termine.");
+      await ctx.reply("I am already generating a sticker for you. I will send it as soon as it is ready.");
       return;
     }
 
@@ -294,7 +294,7 @@ export function registerBotHandlers({
       return;
     }
 
-    const status = await ctx.reply("Generando tu sticker…");
+    const status = await ctx.reply("Generating your sticker…");
     const stopChatAction = startStickerChatAction(ctx.api, ctx.chat.id, {
       messageThreadId: ctx.message?.message_thread_id,
     });
@@ -311,7 +311,7 @@ export function registerBotHandlers({
       stopChatAction();
       activeUsers.delete(id);
       try { await ctx.api.deleteMessage(ctx.chat.id, status.message_id); } catch {}
-      await ctx.reply("Hay demasiadas generaciones en cola. Inténtalo de nuevo en unos minutos.");
+      await ctx.reply("There are too many generations in the queue. Try again in a few minutes.");
     }
   }
 
@@ -323,26 +323,26 @@ export function registerBotHandlers({
       if (result.status === "complete") {
         await userStore.setSession(id, result.token, result.user);
         pendingLogins.delete(id);
-        await bot.api.editMessageText(chatId, messageId, `Sesión enlazada correctamente${result.user.email ? ` como ${result.user.email}` : ""}. Ya puedes usar /sticker.`);
+        await bot.api.editMessageText(chatId, messageId, `Session linked successfully${result.user.email ? ` as ${result.user.email}` : ""}. You can now use /sticker.`);
         return;
       }
       if (result.status === "expired") {
         pendingLogins.delete(id);
-        await bot.api.editMessageText(chatId, messageId, "El código de inicio de sesión ha caducado. Usa /login para empezar otro.");
+        await bot.api.editMessageText(chatId, messageId, "The login code has expired. Use /login to start again.");
         return;
       }
       state.timer = setTimeout(() => pollLogin(id, chatId, messageId, loginId), Math.max(1, result.retryAfter || state.interval) * 1000);
     } catch (error) {
       pendingLogins.delete(id);
-      await bot.api.editMessageText(chatId, messageId, `No pude completar el inicio de sesión: ${error.message}`);
+      await bot.api.editMessageText(chatId, messageId, `I could not complete the login: ${error.message}`);
     }
   }
 
   bot.command("start", (ctx) => {
     const inlineHint = ctx.match === "inline-login"
-      ? "\n\nPara usar el modo inline, enlaza primero tu cuenta con /login."
+      ? "\n\nTo use inline mode, link your account with /login first."
       : "";
-    return ctx.reply(`${HELP}\n\nHola, ${displayName(ctx)}.${inlineHint}`);
+    return ctx.reply(`${HELP}\n\nHi, ${displayName(ctx)}.${inlineHint}`);
   });
   bot.command("help", (ctx) => ctx.reply(HELP));
   bot.command("login", async (ctx) => {
@@ -350,40 +350,40 @@ export function registerBotHandlers({
     if (!id) return;
     const existing = pendingLogins.get(id);
     if (existing) {
-      await ctx.reply("Ya hay un inicio de sesión pendiente. Abre el enlace anterior o espera a que caduque.");
+      await ctx.reply("A login is already pending. Open the previous link or wait for it to expire.");
       return;
     }
     try {
       const details = await authService.startDeviceLogin();
       const text = [
-        "Para enlazar tu cuenta de OpenAI:",
-        `1. Abre ${details.verificationUrl}`,
-        `2. Introduce el código: ${details.userCode}`,
+        "To link your OpenAI account:",
+        `1. Open ${details.verificationUrl}`,
+        `2. Enter this code: ${details.userCode}`,
         "",
-        "El código caduca en 15 minutos. No lo compartas con nadie.",
-        "Esperando autorización…",
+        "The code expires in 15 minutes. Do not share it with anyone.",
+        "Waiting for authorization…",
       ].join("\n");
       const message = await ctx.reply(text, {
-        reply_markup: new InlineKeyboard().url("Abrir inicio de sesión de Codex", details.verificationUrl),
+        reply_markup: new InlineKeyboard().url("Open Codex login", details.verificationUrl),
       });
       pendingLogins.set(id, { loginId: details.loginId, interval: details.interval, timer: null });
       await pollLogin(id, ctx.chat.id, message.message_id, details.loginId);
     } catch (error) {
-      await ctx.reply(`No pude iniciar el enlace con OpenAI: ${error.message}`);
+      await ctx.reply(`I could not start the OpenAI login: ${error.message}`);
     }
   });
 
   bot.command("logout", async (ctx) => {
     const id = userId(ctx);
     if (id) await userStore.clear(id);
-    await ctx.reply("He eliminado la sesión de OpenAI asociada a tu cuenta de Telegram.");
+    await ctx.reply("I removed the OpenAI session associated with your Telegram account.");
   });
 
   bot.command("whoami", async (ctx) => {
     const id = userId(ctx);
     const record = id && userStore.get(id);
     if (!record?.identity) return sendLoginRequired(ctx);
-    await ctx.reply(`Cuenta enlazada: ${record.identity.email || "correo no disponible"}${record.identity.plan ? ` (${record.identity.plan})` : ""}`);
+    await ctx.reply(`Linked account: ${record.identity.email || "email unavailable"}${record.identity.plan ? ` (${record.identity.plan})` : ""}`);
   });
 
   bot.on("inline_query", async (ctx) => {
@@ -395,7 +395,7 @@ export function registerBotHandlers({
       await ctx.answerInlineQuery([], {
         cache_time: 0,
         is_personal: true,
-        button: { text: "Enlazar cuenta de OpenAI", start_parameter: "inline-login" },
+        button: { text: "Link OpenAI account", start_parameter: "inline-login" },
       });
       return;
     }
@@ -433,30 +433,30 @@ export function registerBotHandlers({
     const id = userId(ctx);
     const inlineMessageId = ctx.callbackQuery.inline_message_id;
     if (!job || !inlineMessageId) {
-      await ctx.answerCallbackQuery({ text: "Esta solicitud ha caducado. Vuelve a abrir el modo inline." });
+      await ctx.answerCallbackQuery({ text: "This request has expired. Open inline mode again." });
       return;
     }
     if (job.userId !== id) {
-      await ctx.answerCallbackQuery({ text: "Solo quien creó este placeholder puede generar el sticker.", show_alert: true });
+      await ctx.answerCallbackQuery({ text: "Only the person who created this placeholder can generate the sticker.", show_alert: true });
       return;
     }
     if (job.status === "running" || activeUsers.has(id)) {
-      await ctx.answerCallbackQuery({ text: "Ya estoy generando un sticker para ti." });
+      await ctx.answerCallbackQuery({ text: "I am already generating a sticker for you." });
       return;
     }
     if (job.status === "ready") {
-      await ctx.answerCallbackQuery({ text: "El sticker ya está listo." });
+      await ctx.answerCallbackQuery({ text: "The sticker is already ready." });
       return;
     }
 
     job.status = "running";
     activeUsers.add(id);
-    await ctx.answerCallbackQuery({ text: "Generando sticker…" });
-    await bot.api.editMessageTextInline(inlineMessageId, "⏳ Generando sticker…");
+    await ctx.answerCallbackQuery({ text: "Generating sticker…" });
+    await bot.api.editMessageTextInline(inlineMessageId, "⏳ Generating sticker…");
     if (!queue.enqueue(() => processInlineStickerJob({ jobId, inlineMessageId }))) {
       activeUsers.delete(id);
       job.status = "pending";
-      await bot.api.editMessageTextInline(inlineMessageId, "Hay demasiadas generaciones en cola. Inténtalo de nuevo.");
+      await bot.api.editMessageTextInline(inlineMessageId, "There are too many generations in the queue. Try again.");
     }
   });
 
@@ -469,7 +469,7 @@ export function registerBotHandlers({
   bot.command("edit", async (ctx) => {
     const sourceFileId = sourceImageFileId(ctx);
     if (!sourceFileId) {
-      await ctx.reply("Responde a un sticker o una foto con /edit y describe el cambio que quieres.");
+      await ctx.reply("Reply to a sticker or photo with /edit and describe the change you want.");
       return;
     }
     await createSticker(ctx, ctx.match, sourceFileId);

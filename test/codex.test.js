@@ -45,7 +45,7 @@ test("Codex image edits use the tool controls supported by gpt-image-2-codex", a
 
   await generateStickerImage({
     oauth: { accessToken: "test-token", accountId: "account-1" },
-    prompt: "hazlo sticker",
+    prompt: "turn it into a sticker",
     sourceDataUrl: "data:image/png;base64,AAAA",
     fetchImpl,
   });

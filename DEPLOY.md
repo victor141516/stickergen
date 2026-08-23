@@ -1,40 +1,34 @@
-# Despliegue en Tilde
+# Deploying to Tilde
 
-El despliegue está preparado para Docker Compose. En el host remoto:
+The deployment uses Docker Compose. On the remote host:
 
 ```console
 mkdir -p ~/codex-telegram-sticker-bot
 mkdir -p /home/victor141516/secrets/codex-telegram-sticker-bot
 cd ~/codex-telegram-sticker-bot
-# copiar aquí el proyecto
+# Copy the project here.
 cp .env.example /home/victor141516/secrets/codex-telegram-sticker-bot/env
 chmod 600 /home/victor141516/secrets/codex-telegram-sticker-bot/env
-# En Tilde el builder BuildKit puede no estar disponible para el usuario SSH.
+# BuildKit may not be available to the SSH user on Tilde.
 DOCKER_BUILDKIT=0 docker compose build
 docker compose up -d
 docker compose logs -f --tail=100
 ```
 
-Variables obligatorias:
+Required variables:
 
-- `TELEGRAM_BOT_TOKEN`: token entregado por BotFather.
-- `SESSION_SECRET`: secreto estable y aleatorio para poder reiniciar sin cerrar
-  todas las sesiones enlazadas.
-- `TELEGRAM_WEBHOOK_SECRET`: secreto aleatorio usado en el header que Telegram
-  envía al webhook.
-- `PUBLIC_BASE_URL`: URL HTTPS pública que Caddy proxyará al contenedor.
+- `TELEGRAM_BOT_TOKEN`: token issued by BotFather.
+- `SESSION_SECRET`: stable random secret that allows restarts without invalidating every linked session.
+- `TELEGRAM_WEBHOOK_SECRET`: random secret sent by Telegram in the webhook request header.
+- `PUBLIC_BASE_URL`: public HTTPS URL that Caddy proxies to the container.
 
-El `docker-compose.yml` no publica el puerto HTTP en el host. El servicio se
-conecta a la red Docker externa `caddywork` y Caddy termina HTTPS para el
-webhook; `/healthz` se utiliza desde dentro del contenedor.
+The `docker-compose.yml` file does not publish the HTTP port on the host. The service joins the external `caddywork` Docker network, and Caddy terminates HTTPS for the webhook. The `/healthz` endpoint is used from inside the container.
 
-Después de configurar Caddy para `stickers.viti.site`, el proceso registra el
-webhook automáticamente con Telegram. Comprueba el estado con:
+After configuring Caddy for `stickers.viti.site`, the process automatically registers its webhook with Telegram. Check the deployment with:
 
 ```console
 docker exec caddy caddy validate --config /etc/caddy/Caddyfile
 docker logs --tail=100 codex-telegram-sticker-bot
 ```
 
-Antes de desplegar, revisar `~/AGENTS.md` en Tilde y seguir sus instrucciones
-locales de operación. No se sube ningún token al repositorio.
+Before deploying, read `~/AGENTS.md` on Tilde and follow its local operating instructions. Never upload a token to the repository.

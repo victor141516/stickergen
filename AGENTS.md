@@ -40,7 +40,7 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 ## Style
 
 - Use ESM, two-space indentation, semicolons, and small focused functions.
-- Keep user-facing Telegram copy in Spanish.
+- Keep user-facing Telegram copy in English.
 - Use stable, machine-searchable English event names for structured logs.
 - Prefer dependency injection for networked code so behavior can be unit tested without Telegram or OpenAI.
 - Preserve existing error context while avoiding tokens, authorization headers, image payloads, and session blobs in logs.

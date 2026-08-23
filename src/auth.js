@@ -27,7 +27,7 @@ function identityFromTokens(tokens, previous = {}) {
   const accountId =
     claims.chatgpt_account_id || auth.chatgpt_account_id || previous.accountId;
 
-  if (!accountId) throw new Error("OpenAI no devolvió un identificador de cuenta");
+  if (!accountId) throw new Error("OpenAI did not return an account identifier");
 
   return {
     accountId,
@@ -37,10 +37,10 @@ function identityFromTokens(tokens, previous = {}) {
 }
 
 function oauthFromTokenResponse(tokens, previous = {}) {
-  if (!tokens.access_token) throw new Error("OpenAI no devolvió un access token");
+  if (!tokens.access_token) throw new Error("OpenAI did not return an access token");
   const identity = identityFromTokens(tokens, previous);
   const refreshToken = tokens.refresh_token || previous.refreshToken;
-  if (!refreshToken) throw new Error("OpenAI no devolvió un refresh token");
+  if (!refreshToken) throw new Error("OpenAI did not return a refresh token");
 
   return {
     accessToken: tokens.access_token,
@@ -56,9 +56,9 @@ async function readJson(response, description) {
   try {
     body = JSON.parse(text);
   } catch {
-    throw new Error(`${description} devolvió una respuesta no válida`);
+    throw new Error(`${description} returned an invalid response`);
   }
-  if (!response.ok) throw new Error(`${description} falló (${response.status})`);
+  if (!response.ok) throw new Error(`${description} failed (${response.status})`);
   return body;
 }
 
@@ -69,7 +69,7 @@ export class AuthService {
     clientId = process.env.CODEX_CLIENT_ID || DEFAULT_CLIENT_ID,
     fetchImpl = fetch,
   } = {}) {
-    if (!secret) throw new Error("SESSION_SECRET es obligatorio");
+    if (!secret) throw new Error("SESSION_SECRET is required");
     this.key = encryptionKey(secret);
     this.issuer = issuer.replace(/\/$/, "");
     this.clientId = clientId;
@@ -88,18 +88,18 @@ export class AuthService {
 
   async startDeviceLogin() {
     this.prunePending();
-    if (this.pending.size >= 1_000) throw new Error("Hay demasiados inicios de sesión pendientes");
+    if (this.pending.size >= 1_000) throw new Error("There are too many pending login attempts");
 
     const response = await this.fetch(`${this.issuer}/api/accounts/deviceauth/usercode`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ client_id: this.clientId }),
     });
-    const data = await readJson(response, "Inicio de sesión de Codex");
+    const data = await readJson(response, "Codex login");
     const interval = Math.max(1, Number(data.interval || 5));
     const loginId = randomBytes(32).toString("base64url");
     const userCode = data.user_code || data.usercode;
-    if (!data.device_auth_id || !userCode) throw new Error("El inicio de sesión devolvió datos incompletos");
+    if (!data.device_auth_id || !userCode) throw new Error("The login flow returned incomplete data");
 
     this.pending.set(loginId, {
       deviceAuthId: data.device_auth_id,
@@ -137,7 +137,7 @@ export class AuthService {
       return { status: "pending", retryAfter: pending.interval };
     }
 
-    const code = await readJson(response, "Autorización de dispositivo de Codex");
+    const code = await readJson(response, "Codex device authorization");
     const tokens = await this.exchangeCode(code.authorization_code, code.code_verifier);
     const oauth = oauthFromTokenResponse(tokens);
     const token = await this.issueSession(oauth);
@@ -174,7 +174,7 @@ export class AuthService {
       keyManagementAlgorithms: ["dir"],
       contentEncryptionAlgorithms: ["A256GCM"],
     });
-    if (!payload.oauth || typeof payload.oauth !== "object") throw new Error("Sesión no válida");
+    if (!payload.oauth || typeof payload.oauth !== "object") throw new Error("Invalid session");
     return payload.oauth;
   }
 
@@ -199,7 +199,7 @@ export class AuthService {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body,
     });
-    return oauthFromTokenResponse(await readJson(response, "Renovación de sesión de OpenAI"), previous);
+    return oauthFromTokenResponse(await readJson(response, "OpenAI session refresh"), previous);
   }
 
   publicIdentity(oauth) {

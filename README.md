@@ -2,97 +2,98 @@
 
 # 🎨 StickerGen
 
-**Convierte una idea —o una foto— en un sticker de Telegram usando tu propia cuenta de Codex.**
+**Turn an idea—or a photo—into a Telegram sticker using your own Codex account.**
 
 [![Telegram](https://img.shields.io/badge/Telegram-@stickergen__miramacho__bot-26A5E4?logo=telegram&logoColor=white)](https://t.me/stickergen_miramacho_bot)
 [![Node.js](https://img.shields.io/badge/Node.js-22+-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![grammY](https://img.shields.io/badge/Telegram%20framework-grammY-0097A7)](https://grammy.dev/)
 [![Docker](https://img.shields.io/badge/deploy-Docker-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE.md)
 
-### [🚀 Abrir @stickergen_miramacho_bot](https://t.me/stickergen_miramacho_bot)
+### [🚀 Open @stickergen_miramacho_bot](https://t.me/stickergen_miramacho_bot)
 
 </div>
 
-StickerGen enlaza cada usuario de Telegram con su propia sesión de OpenAI/Codex, genera imágenes y las entrega como stickers estáticos compatibles con Telegram. Funciona en privado, dentro de grupos y mediante el modo inline, incluso cuando el bot no pertenece al chat.
+StickerGen links each Telegram user to their own OpenAI/Codex session, generates images, and delivers them as Telegram-compatible static stickers. It works in private chats, groups, and inline mode—even when the bot is not a member of the chat.
 
 > [!NOTE]
-> Este es un proyecto independiente. No está afiliado con Telegram ni con OpenAI.
+> This is an independent project. It is not affiliated with Telegram or OpenAI.
 
-## ✨ Qué puede hacer
+## ✨ What it can do
 
-| | Funcionalidad |
+| | Feature |
 | --- | --- |
-| 🪄 | Crear stickers desde una descripción de texto |
-| 📸 | Transformar fotos, documentos de imagen y stickers existentes |
-| 🧑‍🎨 | Seguir instrucciones de estilo: pixel art, cómic, acuarela, Paint… |
-| 🫥 | Conservar el canal alfa cuando OpenAI devuelve transparencia real |
-| 👥 | Trabajar en grupos mediante comandos, respuestas y menciones |
-| ⚡ | Generar en cualquier chat con `@stickergen_miramacho_bot <prompt>` |
-| 🔐 | Mantener una sesión de Codex cifrada e independiente por usuario |
-| 🧵 | Procesar las generaciones largas en una cola limitada dentro del proceso |
-| 🐳 | Desplegarse como un único servicio Docker detrás de un webhook HTTPS |
+| 🪄 | Create stickers from a text description |
+| 📸 | Transform photos, image documents, and existing stickers |
+| 🧑‍🎨 | Follow style instructions such as pixel art, comic, watercolor, or Paint |
+| 🫥 | Preserve the alpha channel when OpenAI returns real transparency |
+| 👥 | Work in groups through commands, replies, and mentions |
+| ⚡ | Generate in any chat with `@stickergen_miramacho_bot <prompt>` |
+| 🔐 | Keep a separate encrypted Codex session for every user |
+| 🧵 | Process long-running generations in a bounded in-process queue |
+| 🐳 | Deploy as a single Docker service behind an HTTPS webhook |
 
-## 💬 Cómo usarlo
+## 💬 How to use it
 
-Primero abre [el bot](https://t.me/stickergen_miramacho_bot), ejecuta `/login` y completa el inicio de sesión de Codex. Después puedes usar:
+Open [the bot](https://t.me/stickergen_miramacho_bot), run `/login`, and complete the Codex sign-in flow. You can then use:
 
-| Acción | Ejemplo |
+| Action | Example |
 | --- | --- |
-| Crear desde texto | `/sticker un mapache astronauta saludando` |
-| Crear desde una foto | Envía una foto con el caption `como personaje de Advance Wars` |
-| Editar una imagen | Responde con `/edit ponle unas gafas rojas` |
-| Invocarlo en un grupo | Responde a una imagen con `@stickergen_miramacho_bot hazlo pixel art` |
-| Consultar la cuenta | `/whoami` |
-| Desvincular la sesión | `/logout` |
+| Create from text | `/sticker a waving astronaut raccoon` |
+| Create from a photo | Send a photo with the caption `as an Advance Wars character` |
+| Edit an image | Reply with `/edit add red sunglasses` |
+| Invoke it in a group | Reply to an image with `@stickergen_miramacho_bot make it pixel art` |
+| Check the linked account | `/whoami` |
+| Remove the linked session | `/logout` |
 
-### ⚡ Modo inline
+### ⚡ Inline mode
 
-Escribe lo siguiente en cualquier chat, aunque StickerGen no forme parte del grupo:
+Type this in any chat, even when StickerGen is not a member of the group:
 
 ```text
-@stickergen_miramacho_bot un pulpo programador tomando café
+@stickergen_miramacho_bot an octopus programmer drinking coffee
 ```
 
-Elige **Generar sticker**, pulsa el botón del placeholder y espera a que termine. Telegram no entrega al bot el mensaje respondido dentro de una consulta inline, por lo que editar una foto ya publicada requiere que el bot esté en el grupo y se invoque mediante una mención o `/edit`.
+Choose **Generate sticker**, tap the placeholder button, and wait for the result. Telegram does not provide the replied-to message in an inline query, so editing an image already posted in a chat requires the bot to be present and invoked through a mention or `/edit`.
 
-## 🧠 Cómo funciona
+## 🧠 How it works
 
 ```mermaid
 flowchart LR
-    T["Telegram<br/>privado · grupos · inline"]
-    W["Webhook HTTPS<br/>grammY"]
-    Q["Cola interna<br/>concurrencia limitada"]
-    C["Codex Responses<br/>sesión del usuario"]
-    S["Conversión WebP<br/>Sharp"]
+    T["Telegram<br/>private · groups · inline"]
+    W["HTTPS webhook<br/>grammY"]
+    Q["In-process queue<br/>bounded concurrency"]
+    C["Codex Responses<br/>user session"]
+    S["WebP conversion<br/>Sharp"]
 
     T --> W --> Q --> C --> S --> T
 ```
 
-Cada petición se genera una sola vez. StickerGen no recorta sujetos, elimina fondos ni altera el contenido visual por su cuenta: únicamente realiza la conversión técnica necesaria para cumplir los límites de Telegram. Si la imagen de OpenAI contiene transparencia, el WebP conserva ese canal alfa; si tiene un fondo opaco, se envía igualmente.
+Each request is generated exactly once. StickerGen does not crop subjects, remove backgrounds, or otherwise alter visual content locally. It only performs the technical conversion needed to satisfy Telegram's sticker limits. If OpenAI returns an image with transparency, the WebP output preserves its alpha channel; opaque images are sent as well.
 
-Mientras trabaja, Telegram muestra el estado **eligiendo un sticker**. El bot renueva ese estado hasta completar o cancelar el trabajo.
+While a normal chat request is running, Telegram displays the **choosing a sticker** action. The bot refreshes it until the job completes or fails.
 
-## 🔐 Sesiones y privacidad
+## 🔐 Sessions and privacy
 
-- Cada usuario de Telegram enlaza su propia cuenta mediante el flujo de código de dispositivo.
-- Los tokens se guardan cifrados como JWE en `DATA_DIR/users.json`.
-- `SESSION_SECRET` nunca debe cambiar entre reinicios si se quieren conservar las sesiones.
-- Las imágenes y credenciales no se escriben en los logs.
-- Los logs de generación incluyen únicamente el prompt, un identificador y estadísticas técnicas de la imagen.
+- Each Telegram user links their own account through the device-code flow.
+- Tokens are stored as encrypted JWE values in `DATA_DIR/users.json`.
+- `SESSION_SECRET` must remain stable across restarts to preserve linked sessions.
+- Images and credentials are never written to logs.
+- Generation logs contain only the prompt, an identifier, and technical image statistics.
 
 > [!IMPORTANT]
-> El acceso con una cuenta de ChatGPT/Codex utiliza endpoints privados compatibles con Codex. No son un contrato público de la API de OpenAI y pueden cambiar sin previo aviso.
+> Signing in with a ChatGPT/Codex account uses private Codex-compatible endpoints. They are not part of the public OpenAI API contract and may change without notice.
 
-## 🛠️ Desarrollo local
+## 🛠️ Local development
 
-### Requisitos
+### Requirements
 
-- Node.js 22 o posterior
-- Un bot creado con [@BotFather](https://t.me/BotFather)
-- Una URL HTTPS pública para recibir el webhook
-- Modo inline habilitado con `/setinline` en BotFather
+- Node.js 22 or later
+- A bot created with [@BotFather](https://t.me/BotFather)
+- A public HTTPS URL for the webhook
+- Inline mode enabled through BotFather's `/setinline` command
 
-### Puesta en marcha
+### Quick start
 
 ```bash
 git clone https://github.com/victor141516/stickergen.git
@@ -102,28 +103,28 @@ cp .env.example .env
 npm start
 ```
 
-Completa `.env` antes de arrancar:
+Complete `.env` before starting the application:
 
-| Variable | Uso |
+| Variable | Purpose |
 | --- | --- |
-| `TELEGRAM_BOT_TOKEN` | Token entregado por BotFather |
-| `SESSION_SECRET` | Secreto estable para cifrar las sesiones |
-| `PUBLIC_BASE_URL` | Origen HTTPS público del webhook |
-| `TELEGRAM_WEBHOOK_SECRET` | Secreto que autentica las llamadas de Telegram |
-| `CODEX_MODEL` | Modelo principal que orquesta la generación |
-| `GENERATION_COOLDOWN_MS` | Espera mínima entre solicitudes del mismo usuario |
+| `TELEGRAM_BOT_TOKEN` | Token issued by BotFather |
+| `SESSION_SECRET` | Stable secret used to encrypt sessions |
+| `PUBLIC_BASE_URL` | Public HTTPS origin for the webhook |
+| `TELEGRAM_WEBHOOK_SECRET` | Secret used to authenticate Telegram webhook calls |
+| `CODEX_MODEL` | Primary model that orchestrates image generation |
+| `GENERATION_COOLDOWN_MS` | Minimum delay between requests from the same user |
 
-Genera secretos adecuados con una herramienta criptográficamente segura; no reutilices el token del bot como secreto de sesión o webhook.
+Generate secrets with a cryptographically secure tool. Do not reuse the bot token as a session or webhook secret.
 
-## 🧪 Verificación
+## 🧪 Verification
 
 ```bash
 npm test
 ```
 
-Las pruebas cubren cifrado de sesiones, manejo de medios, menciones, modo inline, streaming SSE, cola interna y conversión WebP con fondos transparentes y opacos.
+The test suite covers encrypted sessions, media handling, mentions, inline mode, SSE streaming, the internal queue, and WebP conversion for both transparent and opaque images.
 
-La prueba E2E de `src/e2e-test.js` consume una generación real y envía un sticker al único usuario almacenado. No debe ejecutarse en CI ni sin autorización explícita.
+The E2E script at `src/e2e-test.js` consumes a real generation and sends a sticker to the only stored user. Do not run it in CI or without explicit authorization.
 
 ## 🐳 Docker
 
@@ -132,27 +133,27 @@ docker compose build
 docker compose up -d
 ```
 
-La composición incluida conecta el contenedor a la red externa `caddywork`, carga los secretos desde un archivo fuera del repositorio y expone `/healthz` para supervisión. Adapta esas rutas y la red a tu infraestructura. La guía usada por la instalación original está en [DEPLOY.md](DEPLOY.md).
+The included Compose configuration connects the container to the external `caddywork` network, loads secrets from a file outside the repository, and exposes `/healthz` for monitoring. Adapt those paths and the network to your infrastructure. The original installation guide is available in [DEPLOY.md](DEPLOY.md).
 
-## 🗂️ Estructura
+## 🗂️ Project structure
 
 ```text
 src/
-├── auth.js       # OAuth de Codex y cifrado JWE
-├── bot.js        # comandos, menciones, inline y trabajos
-├── codex.js      # cliente de Responses y parser SSE
-├── index.js      # servidor HTTP y webhook de Telegram
-├── queue.js      # cola limitada dentro del proceso
-├── stickers.js   # conversión compatible con Telegram
-└── store.js      # almacenamiento de sesiones
+├── auth.js       # Codex OAuth and JWE encryption
+├── bot.js        # commands, mentions, inline mode, and jobs
+├── codex.js      # Responses client and SSE parser
+├── index.js      # HTTP server and Telegram webhook
+├── queue.js      # bounded in-process queue
+├── stickers.js   # Telegram-compatible conversion
+└── store.js      # session storage
 ```
 
-Las reglas de desarrollo para asistentes y colaboradores están en [AGENTS.md](AGENTS.md).
+Development rules for assistants and contributors are documented in [AGENTS.md](AGENTS.md). StickerGen is available under the [MIT License](LICENSE.md).
 
 ---
 
 <div align="center">
 
-Hecho para convertir «se me acaba de ocurrir una tontería» en un sticker antes de que deje de tener gracia. 🫡
+Made to turn “I just had a ridiculous idea” into a sticker before it stops being funny. 🫡
 
 </div>

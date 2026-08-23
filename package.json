@@ -1,7 +1,13 @@
 {
   "name": "codex-telegram-sticker-bot",
   "version": "0.1.0",
+  "description": "A Codex-powered Telegram bot that creates stickers from text and images.",
   "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/victor141516/stickergen.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -13,6 +19,6 @@
   "dependencies": {
     "grammy": "^1.38.4",
     "jose": "^6.1.0",
-    "sharp": "^0.34.3"
+    "sharp": "^0.35.3"
   }
 }

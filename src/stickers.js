@@ -8,7 +8,7 @@ async function decodeImage(value) {
   }
   if (/^https?:\/\//i.test(value)) {
     const response = await fetch(value);
-    if (!response.ok) throw new Error(`Descarga de imagen falló (${response.status})`);
+    if (!response.ok) throw new Error(`Image download failed (${response.status})`);
     return Buffer.from(await response.arrayBuffer());
   }
   if (/^[A-Za-z0-9+/=_-]+$/.test(value) && value.length > 100) {
@@ -19,7 +19,7 @@ async function decodeImage(value) {
 
 export async function transparencyStats(imageValue) {
   const input = await decodeImage(imageValue);
-  if (!input) throw new Error("La imagen no tiene un formato utilizable");
+  if (!input) throw new Error("The image is not in a usable format");
   const { data, info } = await sharp(input)
     .rotate()
     .ensureAlpha()
@@ -46,9 +46,9 @@ export async function transparencyStats(imageValue) {
 }
 
 export async function toStickerWebp(imageValue) {
-  if (typeof imageValue !== "string") throw new Error("La respuesta de imagen de Codex no tiene un formato utilizable");
+  if (typeof imageValue !== "string") throw new Error("The Codex image response is not in a usable format");
   const input = await decodeImage(imageValue);
-  if (!input) throw new Error("La respuesta de imagen de Codex no tiene un formato utilizable");
+  if (!input) throw new Error("The Codex image response is not in a usable format");
 
   const sizes = [512, 480, 448, 384];
   const qualities = [90, 80, 70, 60];
@@ -62,7 +62,7 @@ export async function toStickerWebp(imageValue) {
       if (output.length <= 512 * 1024) return output;
     }
   }
-  throw new Error("La imagen generada es demasiado grande para un sticker de Telegram");
+  throw new Error("The generated image is too large for a Telegram sticker");
 }
 
 export async function stickerDataUrl(buffer) {

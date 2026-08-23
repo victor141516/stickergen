@@ -30,14 +30,14 @@ test("accepts image documents and static stickers as source images", () => {
 
 test("extracts a group prompt from a bot mention", () => {
   assert.equal(
-    promptFromBotMention("@StickerGen_MiraMacho_bot, como personaje de Advance Wars", "stickergen_miramacho_bot"),
-    "como personaje de Advance Wars",
+    promptFromBotMention("@StickerGen_MiraMacho_bot, as an Advance Wars character", "stickergen_miramacho_bot"),
+    "as an Advance Wars character",
   );
   assert.equal(
-    promptFromBotMention("Hazlo @stickergen_miramacho_bot con estilo Paint", "stickergen_miramacho_bot"),
-    "Hazlo con estilo Paint",
+    promptFromBotMention("Make it @stickergen_miramacho_bot in a Paint style", "stickergen_miramacho_bot"),
+    "Make it in a Paint style",
   );
-  assert.equal(promptFromBotMention("@otro_bot hazlo sticker", "stickergen_miramacho_bot"), null);
+  assert.equal(promptFromBotMention("@another_bot turn it into a sticker", "stickergen_miramacho_bot"), null);
 });
 
 test("builds an actionable inline placeholder and a cached sticker result", () => {

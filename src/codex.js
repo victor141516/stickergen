@@ -47,10 +47,10 @@ function parseSseFrame(frame) {
   try {
     event = JSON.parse(data);
   } catch {
-    throw new Error("Codex devolvió un evento SSE no válido");
+    throw new Error("Codex returned an invalid SSE event");
   }
   if (event.type === "response.failed" || event.type === "error") {
-    throw new Error(event.response?.error?.message || event.error?.message || "Codex no pudo generar el sticker");
+    throw new Error(event.response?.error?.message || event.error?.message || "Codex could not generate the sticker");
   }
   return { image: findImageInEvent(event) };
 }
@@ -62,7 +62,7 @@ function parseSseDocument(text) {
     if (!frame.trim()) continue;
     image = parseSseFrame(frame).image || image;
   }
-  if (!image) throw new Error("Codex no devolvió una imagen");
+  if (!image) throw new Error("Codex did not return an image");
   return image;
 }
 
@@ -75,13 +75,13 @@ async function parseResponse(response) {
     try {
       body = JSON.parse(text);
     } catch {
-      throw new Error("Codex devolvió una respuesta que no es JSON ni SSE");
+      throw new Error("Codex returned a response that is neither JSON nor SSE");
     }
     const image = collectImageFromOutput(body.output) || collectImageFromOutput(body.data) || imageValue(body) || findImageInEvent(body);
-    if (!image) throw new Error("Codex no devolvió una imagen");
+    if (!image) throw new Error("Codex did not return an image");
     return image;
   }
-  if (!response.body) throw new Error("Codex devolvió un stream vacío");
+  if (!response.body) throw new Error("Codex returned an empty stream");
   const decoder = new TextDecoder();
   let buffer = "";
   let image = null;
@@ -101,7 +101,7 @@ async function parseResponse(response) {
   }
   buffer += decoder.decode();
   if (buffer.trim()) processFrame(buffer);
-  if (!image) throw new Error("Codex no devolvió una imagen");
+  if (!image) throw new Error("Codex did not return an image");
   return image;
 }
 
@@ -147,7 +147,7 @@ export async function generateStickerImage({ oauth, prompt, sourceDataUrl, fetch
   });
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 500);
-    throw new Error(`Codex rechazó la generación (${response.status})${detail ? `: ${detail}` : ""}`);
+    throw new Error(`Codex rejected the generation request (${response.status})${detail ? `: ${detail}` : ""}`);
   }
   return parseResponse(response);
 }

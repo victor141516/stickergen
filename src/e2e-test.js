@@ -8,7 +8,7 @@ import { UserStore } from "./store.js";
 
 const sessionSecret = process.env.SESSION_SECRET;
 const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
-if (!sessionSecret || !telegramToken) throw new Error("Faltan secretos de ejecución");
+if (!sessionSecret || !telegramToken) throw new Error("Required runtime secrets are missing");
 
 const dataDir = process.env.DATA_DIR || "/app/data";
 const store = new UserStore(path.join(dataDir, "users.json"));
@@ -16,7 +16,7 @@ await store.init();
 
 const telegramUserIds = Object.keys(store.state.users);
 if (telegramUserIds.length !== 1) {
-  throw new Error(`La prueba E2E requiere exactamente una sesión; hay ${telegramUserIds.length}`);
+  throw new Error(`The E2E test requires exactly one stored session; found ${telegramUserIds.length}`);
 }
 
 const telegramUserId = telegramUserIds[0];
