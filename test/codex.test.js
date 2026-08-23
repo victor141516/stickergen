@@ -115,6 +115,33 @@ test("Codex parser surfaces failed image generation tool calls", async () => {
   );
 });
 
+test("Codex parser keeps reading after a failed image item to capture the terminal reason", async () => {
+  const failedItem = {
+    type: "response.output_item.done",
+    item: { type: "image_generation_call", status: "failed" },
+  };
+  const failedResponse = {
+    type: "response.failed",
+    response: {
+      status: "failed",
+      error: { code: "image_safety_error", message: "The input image could not be processed safely" },
+    },
+  };
+  const fetchImpl = async () => new Response(
+    `data: ${JSON.stringify(failedItem)}\n\ndata: ${JSON.stringify(failedResponse)}\n\ndata: [DONE]\n\n`,
+    { status: 200, headers: { "Content-Type": "text/event-stream" } },
+  );
+
+  await assert.rejects(
+    generateStickerImage({
+      oauth: { accessToken: "test-token", accountId: "account-1" },
+      prompt: "remove the background",
+      fetchImpl,
+    }),
+    /The input image could not be processed safely/,
+  );
+});
+
 test("Codex parser reports incomplete responses and safe terminal diagnostics", async () => {
   const incompleteFetch = async () => new Response(`data: ${JSON.stringify({
     type: "response.incomplete",

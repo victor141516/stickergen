@@ -41,17 +41,29 @@ function errorMessage(value) {
   return candidates.find((candidate) => typeof candidate === "string" && candidate.trim()) || null;
 }
 
+function errorCode(value) {
+  const candidates = [
+    value?.code,
+    value?.error?.code,
+    value?.response?.error?.code,
+  ];
+  return candidates.find((candidate) => typeof candidate === "string" && candidate.trim()) || null;
+}
+
+function outputMessage(event) {
+  for (const item of outputItems(event)) {
+    if (item?.type !== "message" || !Array.isArray(item.content)) continue;
+    for (const part of item.content) {
+      const text = part?.refusal || part?.text;
+      if (typeof text === "string" && text.trim()) return text.trim().slice(0, 500);
+    }
+  }
+  return null;
+}
+
 function failureFromEvent(event) {
   if (event?.type === "error" || event?.type === "response.failed" || event?.response?.status === "failed") {
     return errorMessage(event) || "Codex could not generate the sticker";
-  }
-
-  const failedImage = outputItems(event).find((item) => (
-    item?.type === "image_generation_call" && (item.status === "failed" || item.error)
-  ));
-  if (failedImage) {
-    const detail = errorMessage(failedImage);
-    return detail ? `Codex image generation failed: ${detail}` : "Codex image generation failed";
   }
 
   if (event?.type === "response.incomplete" || event?.response?.status === "incomplete") {
@@ -68,7 +80,13 @@ function failureFromEvent(event) {
 }
 
 function createDiagnostics() {
-  return { eventTypes: new Set(), responseStatus: null, imageStatus: null };
+  return {
+    eventTypes: new Set(),
+    responseStatus: null,
+    imageStatus: null,
+    imageFailure: null,
+    outputMessage: null,
+  };
 }
 
 function recordDiagnostics(diagnostics, event) {
@@ -77,9 +95,17 @@ function recordDiagnostics(diagnostics, event) {
     diagnostics.eventTypes.add(event.type);
   }
   if (typeof event.response?.status === "string") diagnostics.responseStatus = event.response.status;
+  diagnostics.outputMessage ||= outputMessage(event);
   for (const item of outputItems(event)) {
     if (item?.type === "image_generation_call" && typeof item.status === "string") {
       diagnostics.imageStatus = item.status;
+    }
+    if (item?.type === "image_generation_call" && (item.status === "failed" || item.error)) {
+      const detail = errorMessage(item);
+      const code = errorCode(item);
+      diagnostics.imageFailure = detail
+        ? `Codex image generation failed: ${detail}`
+        : `Codex image generation failed${code ? ` (${code})` : ""}`;
     }
   }
 }
@@ -91,7 +117,9 @@ function missingImageError(diagnostics) {
   }
   if (diagnostics?.responseStatus) details.push(`response status: ${diagnostics.responseStatus}`);
   if (diagnostics?.imageStatus) details.push(`image status: ${diagnostics.imageStatus}`);
-  return new Error(`Codex did not return an image${details.length ? ` (${details.join("; ")})` : ""}`);
+  const base = diagnostics?.imageFailure || "Codex did not return an image";
+  const modelDetail = diagnostics?.outputMessage ? `: ${diagnostics.outputMessage}` : "";
+  return new Error(`${base}${modelDetail}${details.length ? ` (${details.join("; ")})` : ""}`);
 }
 
 function findImageInEvent(event) {
