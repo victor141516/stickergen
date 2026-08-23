@@ -38,6 +38,7 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - Inline queries do not contain the replied-to Telegram message. Do not claim inline editing can access that image when the bot is absent from the chat.
 - Group free-text handling must require a mention so the bot does not intercept unrelated conversation.
 - Keep `choose_sticker` refreshed while a normal chat generation is pending and stop it on every completion or failure path.
+- Keep each request's progress message updating independently, cap estimated progress at 90% until completion, and stop its timer on every success or failure path.
 
 ## Style
 

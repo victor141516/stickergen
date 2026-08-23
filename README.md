@@ -29,6 +29,7 @@ StickerGen links each Telegram user to their own OpenAI/Codex session, generates
 | 🫥 | Preserve the alpha channel when OpenAI returns real transparency |
 | 👥 | Work in groups through commands, replies, and mentions |
 | ⚡ | Generate in any chat with `@stickergen_miramacho_bot <prompt>` |
+| 📊 | Follow generation through a live progress bar and ETA |
 | 🔐 | Keep a separate encrypted Codex session for every user |
 | 🧵 | Run multiple sticker generations concurrently |
 | 🐳 | Deploy as a single Docker service behind an HTTPS webhook |
@@ -72,7 +73,7 @@ Each request starts its own asynchronous generation, so several stickers can be 
 
 In regular chats, the generated sticker replies to the user's original request so concurrent results remain easy to match. Telegram inline mode does not expose an original chat message to reply to, so inline results continue through their placeholder flow.
 
-While a normal chat request is running, Telegram displays the **choosing a sticker** action. The bot refreshes it until the job completes or fails.
+While a request is running, the bot updates a ten-block progress bar and an approximate ETA in the temporary status message. The initial 80-second estimate comes from observed production timings and can be configured with `GENERATION_ETA_MS`. Progress stops at 90% until Codex finishes because the upstream API does not report real completion percentages. In regular chats, Telegram also displays the **choosing a sticker** action until the job completes or fails.
 
 ## 🔐 Sessions and privacy
 
@@ -114,6 +115,7 @@ Complete `.env` before starting the application:
 | `PUBLIC_BASE_URL` | Public HTTPS origin for the webhook |
 | `TELEGRAM_WEBHOOK_SECRET` | Secret used to authenticate Telegram webhook calls |
 | `CODEX_MODEL` | Primary model that orchestrates image generation |
+| `GENERATION_ETA_MS` | Initial generation estimate used by the progress bar |
 
 Generate secrets with a cryptographically secure tool. Do not reuse the bot token as a session or webhook secret.
 

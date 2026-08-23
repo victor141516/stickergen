@@ -39,6 +39,7 @@ registerBotHandlers({
   authService,
   userStore: store,
   downloadTelegramFile,
+  estimatedGenerationMs: Number(process.env.GENERATION_ETA_MS || 80_000),
 });
 
 bot.catch((error) => console.error("telegram update failed", error));

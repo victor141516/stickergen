@@ -21,6 +21,9 @@ const DEFAULT_PHOTO_PROMPT =
   "Turn the main subject of this photo into a faithful and recognizable Telegram sticker. Remove the background, preserve important features, and use a clean, expressive outline.";
 
 const INLINE_JOB_TTL_MS = 60 * 60 * 1000;
+const DEFAULT_GENERATION_ETA_MS = 80_000;
+const PROGRESS_INTERVAL_MS = 8_000;
+const PROGRESS_BLOCKS = 10;
 
 function userId(ctx) {
   return ctx.from?.id ? String(ctx.from.id) : null;
@@ -111,6 +114,75 @@ export function replyOptions(messageId) {
   };
 }
 
+function formatEta(milliseconds) {
+  const roundedSeconds = Math.max(5, Math.ceil(milliseconds / 5_000) * 5);
+  if (roundedSeconds < 60) return `${roundedSeconds}s`;
+  const minutes = Math.floor(roundedSeconds / 60);
+  const seconds = roundedSeconds % 60;
+  return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+export function generationProgressText(elapsedMs, estimatedMs = DEFAULT_GENERATION_ETA_MS, { complete = false } = {}) {
+  const safeEstimate = Math.max(1, Number(estimatedMs) || DEFAULT_GENERATION_ETA_MS);
+  const elapsed = Math.max(0, Number(elapsedMs) || 0);
+  const filled = complete
+    ? PROGRESS_BLOCKS
+    : Math.min(PROGRESS_BLOCKS - 1, Math.floor((elapsed / safeEstimate) * PROGRESS_BLOCKS));
+  const bar = `${"🟩".repeat(filled)}${"⬜".repeat(PROGRESS_BLOCKS - filled)}`;
+  if (complete) return `🎨 Sticker ready — sending…\n\n${bar}\n100%`;
+  const eta = elapsed < safeEstimate ? `~${formatEta(safeEstimate - elapsed)}` : "finishing…";
+  return `🎨 Generating your sticker…\n\n${bar}\n${filled * 10}% · ETA ${eta}`;
+}
+
+export function startGenerationProgress({
+  update,
+  estimatedMs = DEFAULT_GENERATION_ETA_MS,
+  intervalMs = PROGRESS_INTERVAL_MS,
+  now = Date.now,
+  logger = console,
+}) {
+  const startedAt = now();
+  let stopped = false;
+  let inFlight = Promise.resolve();
+  let lastText = generationProgressText(0, estimatedMs);
+  let warningLogged = false;
+
+  const edit = (text) => {
+    if (text === lastText) return inFlight;
+    lastText = text;
+    inFlight = inFlight.then(async () => {
+      try {
+        await update(text);
+      } catch (error) {
+        if (!warningLogged) {
+          logger.warn("could not update sticker generation progress", error?.message || error);
+          warningLogged = true;
+        }
+      }
+    });
+    return inFlight;
+  };
+
+  const timer = setInterval(() => {
+    if (!stopped) void edit(generationProgressText(now() - startedAt, estimatedMs));
+  }, intervalMs);
+  timer.unref?.();
+
+  return {
+    async complete() {
+      if (stopped) return inFlight;
+      stopped = true;
+      clearInterval(timer);
+      return edit(generationProgressText(now() - startedAt, estimatedMs, { complete: true }));
+    },
+    async stop() {
+      stopped = true;
+      clearInterval(timer);
+      return inFlight;
+    },
+  };
+}
+
 function sourceImageFileId(ctx, { includeCurrent = false } = {}) {
   if (includeCurrent) {
     const current = imageFileIdFromMessage(ctx.message, { includeSticker: false });
@@ -129,6 +201,7 @@ export function registerBotHandlers({
   getTransparencyStats = transparencyStats,
   sourceToDataUrl = stickerDataUrl,
   logger = console,
+  estimatedGenerationMs = DEFAULT_GENERATION_ETA_MS,
 }) {
   const pendingLogins = new Map();
   const inlineJobs = new Map();
@@ -177,6 +250,7 @@ export function registerBotHandlers({
     prompt,
     sourceFileId,
     stopChatAction,
+    progress,
   }) {
     const generationId = randomUUID();
     try {
@@ -209,6 +283,7 @@ export function registerBotHandlers({
       }));
       const webp = await convertToSticker(rawImage);
       const webpTransparency = await getTransparencyStats(webp);
+      await progress?.complete();
       await bot.api.sendSticker(chatId, new InputFile(webp, "sticker.webp"), {
         ...replyOptions(replyToMessageId),
       });
@@ -235,11 +310,12 @@ export function registerBotHandlers({
       }
     } finally {
       stopChatAction?.();
+      await progress?.stop();
       try { await bot.api.deleteMessage(chatId, statusMessageId); } catch {}
     }
   }
 
-  async function processInlineStickerJob({ jobId, inlineMessageId }) {
+  async function processInlineStickerJob({ jobId, inlineMessageId, progress }) {
     const job = inlineJobs.get(jobId);
     if (!job) return;
     const generationId = randomUUID();
@@ -283,6 +359,7 @@ export function registerBotHandlers({
         }]],
       };
 
+      await progress?.complete();
       try {
         await bot.api.editMessageMediaInline(inlineMessageId, {
           type: "document",
@@ -311,9 +388,12 @@ export function registerBotHandlers({
         codexRequestId: error?.codexRequestId || null,
         error: message,
       }));
+      await progress?.stop();
       try {
         await bot.api.editMessageTextInline(inlineMessageId, `I could not generate the sticker: ${message}`);
       } catch {}
+    } finally {
+      await progress?.stop();
     }
   }
 
@@ -331,9 +411,17 @@ export function registerBotHandlers({
     }
 
     const replyToMessageId = ctx.message?.message_id;
-    const status = await ctx.reply("Generating your sticker…", replyOptions(replyToMessageId));
+    const status = await ctx.reply(
+      generationProgressText(0, estimatedGenerationMs),
+      replyOptions(replyToMessageId),
+    );
     const stopChatAction = startStickerChatAction(ctx.api, ctx.chat.id, {
       messageThreadId: ctx.message?.message_thread_id,
+    });
+    const progress = startGenerationProgress({
+      estimatedMs: estimatedGenerationMs,
+      logger,
+      update: (text) => ctx.api.editMessageText(ctx.chat.id, status.message_id, text),
     });
     void processStickerJob({
       id,
@@ -343,6 +431,7 @@ export function registerBotHandlers({
       prompt: prompt.trim(),
       sourceFileId,
       stopChatAction,
+      progress,
     }).catch((error) => logger.error("detached_sticker_generation_failed", error));
   }
 
@@ -482,8 +571,16 @@ export function registerBotHandlers({
 
     job.status = "running";
     await ctx.answerCallbackQuery({ text: "Generating sticker…" });
-    await bot.api.editMessageTextInline(inlineMessageId, "⏳ Generating sticker…");
-    void processInlineStickerJob({ jobId, inlineMessageId })
+    await bot.api.editMessageTextInline(
+      inlineMessageId,
+      generationProgressText(0, estimatedGenerationMs),
+    );
+    const progress = startGenerationProgress({
+      estimatedMs: estimatedGenerationMs,
+      logger,
+      update: (text) => bot.api.editMessageTextInline(inlineMessageId, text),
+    });
+    void processInlineStickerJob({ jobId, inlineMessageId, progress })
       .catch((error) => logger.error("detached_inline_sticker_generation_failed", error));
   });
 

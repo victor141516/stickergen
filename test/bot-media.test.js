@@ -3,11 +3,13 @@ import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import {
   imageFileIdFromMessage,
+  generationProgressText,
   inlineCachedStickerResult,
   inlinePlaceholderResult,
   promptFromBotMention,
   registerBotHandlers,
   replyOptions,
+  startGenerationProgress,
   startStickerChatAction,
 } from "../src/bot.js";
 
@@ -62,6 +64,52 @@ test("builds reply parameters for the original user message", () => {
     },
   });
   assert.deepEqual(replyOptions(), {});
+});
+
+test("renders estimated sticker generation progress without reaching 100% early", () => {
+  assert.equal(
+    generationProgressText(0, 80_000),
+    "🎨 Generating your sticker…\n\n⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜\n0% · ETA ~1m 20s",
+  );
+  assert.equal(
+    generationProgressText(40_000, 80_000),
+    "🎨 Generating your sticker…\n\n🟩🟩🟩🟩🟩⬜⬜⬜⬜⬜\n50% · ETA ~40s",
+  );
+  assert.equal(
+    generationProgressText(90_000, 80_000),
+    "🎨 Generating your sticker…\n\n🟩🟩🟩🟩🟩🟩🟩🟩🟩⬜\n90% · ETA finishing…",
+  );
+  assert.equal(
+    generationProgressText(90_000, 80_000, { complete: true }),
+    "🎨 Sticker ready — sending…\n\n🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩\n100%",
+  );
+});
+
+test("updates generation progress independently and stops after completion", async () => {
+  let currentTime = 0;
+  const updates = [];
+  const progress = startGenerationProgress({
+    estimatedMs: 100,
+    intervalMs: 5,
+    now: () => currentTime,
+    update: async (text) => updates.push(text),
+    logger: { warn() {} },
+  });
+
+  currentTime = 50;
+  await delay(8);
+  currentTime = 120;
+  await delay(8);
+  await progress.complete();
+
+  assert.ok(updates.some((text) => text.includes("50% · ETA ~5s")));
+  assert.ok(updates.some((text) => text.includes("90% · ETA finishing…")));
+  assert.equal(updates.at(-1).includes("100%"), true);
+
+  const updatesAtCompletion = updates.length;
+  currentTime = 200;
+  await delay(10);
+  assert.equal(updates.length, updatesAtCompletion);
 });
 
 test("runs multiple requests from one user concurrently and replies to each original message", async () => {
