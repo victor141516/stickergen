@@ -67,4 +67,4 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 
 - Keep `README.md`, `.env.example`, and `DEPLOY.md` aligned with user-visible behavior and configuration.
 - Follow `DEPLOY.md` for the original Docker/Caddy deployment, plus any instructions present on the target host.
-- A code change does not authorize a production deployment, webhook mutation, or secret rotation unless the user explicitly requests it.
+- The user has given standing authorization to deploy every completed and verified code change to the existing production service. Do not mutate the webhook, reverse proxy, or secrets unless the user explicitly requests that separate change.
