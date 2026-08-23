@@ -1,0 +1,25 @@
+services:
+  sticker-bot:
+    build: .
+    container_name: codex-telegram-sticker-bot
+    restart: unless-stopped
+    env_file:
+      - /home/victor141516/secrets/codex-telegram-sticker-bot/env
+    volumes:
+      - sticker_data:/app/data
+    expose:
+      - "3000"
+    networks:
+      - caddywork
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r => { if (!r.ok) process.exit(1) })"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  sticker_data:
+
+networks:
+  caddywork:
+    external: true
