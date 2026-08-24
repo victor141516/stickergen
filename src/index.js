@@ -73,3 +73,14 @@ await bot.api.setWebhook(`${publicBaseUrl}${webhookPath}`, {
   max_connections: 40,
 });
 console.log(`Telegram webhook configured at ${publicBaseUrl}${webhookPath}`);
+
+await bot.api.setMyCommands([
+  { command: "sticker", description: "Create a sticker from a description" },
+  { command: "edit", description: "Edit a replied-to sticker or photo" },
+  { command: "style", description: "Choose a style for your next sticker" },
+  { command: "login", description: "Link your OpenAI/Codex account" },
+  { command: "whoami", description: "Show the linked account" },
+  { command: "logout", description: "Remove your linked session" },
+  { command: "help", description: "Show usage help" },
+]);
+console.log("Telegram command menu configured");

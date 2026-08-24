@@ -1,0 +1,44 @@
+[
+  {
+    "id": "modern-sticker",
+    "name": "Modern Sticker",
+    "buttonText": "✨ Modern Sticker",
+    "description": "Clean contemporary illustration with bold shapes, crisp color, and polished shading.",
+    "prompt": "Use a modern sticker illustration style: clean contemporary shapes, bold readable colors, crisp edges, and polished restrained shading. Keep the result expressive and immediately readable at Telegram sticker size."
+  },
+  {
+    "id": "1950s-newspaper",
+    "name": "1950s Newspaper Cartoon",
+    "buttonText": "📰 1950s Newspaper",
+    "description": "Mid-century newspaper cartoon ink, economical linework, and vintage halftone texture.",
+    "prompt": "Use the style of a 1950s newspaper cartoon: expressive hand-inked linework, economical shapes, vintage print character, and restrained halftone texture. Make it feel authentically mid-century rather than digitally modern."
+  },
+  {
+    "id": "gba-tactics",
+    "name": "Advance Wars GBA",
+    "buttonText": "🎮 Advance Wars GBA",
+    "description": "Colorful early-2000s handheld tactical-game character art with compact, readable forms.",
+    "prompt": "Use the character-art style of Advance Wars on Game Boy Advance: colorful early-2000s handheld tactical-game illustration, confident anime-influenced outlines, compact readable forms, simple cel shading, and the visual limitations and charm of GBA-era artwork."
+  },
+  {
+    "id": "rubber-hose",
+    "name": "1930s Rubber Hose",
+    "buttonText": "🎞️ 1930s Rubber Hose",
+    "description": "Playful black-and-white animation with bouncy limbs and vintage inked character design.",
+    "prompt": "Use a classic 1930s rubber-hose animation style: playful hand-inked curves, bouncy expressive poses, simplified vintage character construction, and period-appropriate black-and-white cartoon rendering."
+  },
+  {
+    "id": "medieval-woodcut",
+    "name": "Medieval Woodcut",
+    "buttonText": "🪵 Medieval Woodcut",
+    "description": "Carved black ink, dense hatching, and the rough character of an old printed woodblock.",
+    "prompt": "Use a medieval woodcut print style: boldly carved black-ink contours, dense directional hatching, flattened period composition, and the tactile irregularity of an old hand-printed woodblock."
+  },
+  {
+    "id": "victorian-engraving",
+    "name": "Victorian Engraving",
+    "buttonText": "🕰️ Victorian Engraving",
+    "description": "Detailed nineteenth-century engraved linework with cross-hatching and antique print texture.",
+    "prompt": "Use a nineteenth-century Victorian engraving style: precise etched contours, intricate cross-hatching, elegant antique print texture, and richly observed period detail."
+  }
+]

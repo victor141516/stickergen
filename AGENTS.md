@@ -21,6 +21,8 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - `src/auth.js`: Codex device login, refresh, identity extraction, and encrypted JWE sessions.
 - `src/codex.js`: private Codex Responses request and JSON/SSE response parsing.
 - `src/stickers.js`: image decoding and the technical WebP conversion required by Telegram.
+- `src/styles.json`: ordered style preset catalog, including button copy and prompt instructions.
+- `src/styles.js`: style catalog validation and user-prompt precedence.
 - `src/store.js`: JSON-backed per-Telegram-user session store.
 - `test/`: Node test-runner coverage for the modules above.
 
@@ -39,6 +41,7 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - Group free-text handling must require a mention so the bot does not intercept unrelated conversation.
 - Keep `choose_sticker` refreshed while a normal chat generation is pending and stop it on every completion or failure path.
 - Keep each request's progress message updating independently, cap estimated progress at 90% until completion, and stop its timer on every success or failure path.
+- Keep style presets optional and one-use. Apply them only to private-chat requests, and always give an explicit style in the current user prompt priority over the preset.
 
 ## Style
 

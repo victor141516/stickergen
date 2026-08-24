@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { InputFile, InlineKeyboard } from "grammy";
 import { generateStickerImage } from "./codex.js";
 import { stickerDataUrl, toStickerWebp, transparencyStats } from "./stickers.js";
+import { getStylePreset, listStylePresets, promptWithStylePreset } from "./styles.js";
 
 const HELP = [
   "I am a Codex-powered sticker bot.",
@@ -9,10 +10,12 @@ const HELP = [
   "/login — link your OpenAI/Codex account",
   "/sticker <description> — create a sticker",
   "/edit <change> — reply to a sticker or photo to edit it",
+  "/style — choose an optional style for your next sticker",
   "/whoami — show the linked account",
   "/logout — remove your session from this bot",
   "",
   "You can also send a photo, with or without instructions in its caption.",
+  "In the bot's private chat, any plain text message can be a new sticker prompt.",
   "In a group, reply to a photo or sticker with /edit and your request.",
   "You can also reply to an image with @bot_username <instructions>.",
 ].join("\n");
@@ -24,6 +27,55 @@ const INLINE_JOB_TTL_MS = 60 * 60 * 1000;
 const DEFAULT_GENERATION_ETA_MS = 80_000;
 const PROGRESS_INTERVAL_MS = 8_000;
 const PROGRESS_BLOCKS = 10;
+
+function startKeyboard() {
+  return {
+    inline_keyboard: [[
+      { text: "🎨 Choose style", callback_data: "style:open" },
+      { text: "ℹ️ Help", callback_data: "help:open" },
+    ]],
+  };
+}
+
+function styleKeyboard(selectedId = null) {
+  const buttons = listStylePresets().map((preset) => ({
+    text: `${preset.id === selectedId ? "✓ " : ""}${preset.buttonText}`,
+    callback_data: `style:set:${preset.id}`,
+  }));
+  const rows = [];
+  for (let index = 0; index < buttons.length; index += 2) {
+    rows.push(buttons.slice(index, index + 2));
+  }
+  rows.push([{
+    text: `${selectedId ? "" : "✓ "}✨ No preset`,
+    callback_data: "style:set:none",
+  }]);
+  rows.push([{ text: "Close", callback_data: "style:close" }]);
+  return { inline_keyboard: rows };
+}
+
+function styleSelectorText(selectedPreset) {
+  const current = selectedPreset?.name || "No preset";
+  const description = selectedPreset?.description
+    || "Your prompt alone decides the visual style.";
+  return [
+    "🎨 Style for your next sticker",
+    "",
+    `Current: ${current}`,
+    description,
+    "",
+    "A preset is optional, applies once, and resets after your next private-chat request. Any style you write in that prompt takes priority.",
+  ].join("\n");
+}
+
+function selectedStyleKeyboard() {
+  return {
+    inline_keyboard: [[
+      { text: "Change style", callback_data: "style:open" },
+      { text: "Clear preset", callback_data: "style:set:none" },
+    ]],
+  };
+}
 
 function userId(ctx) {
   return ctx.from?.id ? String(ctx.from.id) : null;
@@ -122,16 +174,20 @@ function formatEta(milliseconds) {
   return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
 }
 
-export function generationProgressText(elapsedMs, estimatedMs = DEFAULT_GENERATION_ETA_MS, { complete = false } = {}) {
+export function generationProgressText(elapsedMs, estimatedMs = DEFAULT_GENERATION_ETA_MS, {
+  complete = false,
+  styleName = null,
+} = {}) {
   const safeEstimate = Math.max(1, Number(estimatedMs) || DEFAULT_GENERATION_ETA_MS);
   const elapsed = Math.max(0, Number(elapsedMs) || 0);
   const filled = complete
     ? PROGRESS_BLOCKS
     : Math.min(PROGRESS_BLOCKS - 1, Math.floor((elapsed / safeEstimate) * PROGRESS_BLOCKS));
   const bar = `${"🟩".repeat(filled)}${"⬜".repeat(PROGRESS_BLOCKS - filled)}`;
-  if (complete) return `🎨 Sticker ready — sending…\n\n${bar}\n100%`;
+  const styleLine = styleName ? `\nStyle: ${styleName} · prompt overrides` : "";
+  if (complete) return `🎨 Sticker ready — sending…\n\n${bar}\n100%${styleLine}`;
   const eta = elapsed < safeEstimate ? `~${formatEta(safeEstimate - elapsed)}` : "finishing…";
-  return `🎨 Generating your sticker…\n\n${bar}\n${filled * 10}% · ETA ${eta}`;
+  return `🎨 Generating your sticker…\n\n${bar}\n${filled * 10}% · ETA ${eta}${styleLine}`;
 }
 
 export function startGenerationProgress({
@@ -140,11 +196,12 @@ export function startGenerationProgress({
   intervalMs = PROGRESS_INTERVAL_MS,
   now = Date.now,
   logger = console,
+  styleName = null,
 }) {
   const startedAt = now();
   let stopped = false;
   let inFlight = Promise.resolve();
-  let lastText = generationProgressText(0, estimatedMs);
+  let lastText = generationProgressText(0, estimatedMs, { styleName });
   let warningLogged = false;
 
   const edit = (text) => {
@@ -164,7 +221,7 @@ export function startGenerationProgress({
   };
 
   const timer = setInterval(() => {
-    if (!stopped) void edit(generationProgressText(now() - startedAt, estimatedMs));
+    if (!stopped) void edit(generationProgressText(now() - startedAt, estimatedMs, { styleName }));
   }, intervalMs);
   timer.unref?.();
 
@@ -173,7 +230,7 @@ export function startGenerationProgress({
       if (stopped) return inFlight;
       stopped = true;
       clearInterval(timer);
-      return edit(generationProgressText(now() - startedAt, estimatedMs, { complete: true }));
+      return edit(generationProgressText(now() - startedAt, estimatedMs, { complete: true, styleName }));
     },
     async stop() {
       stopped = true;
@@ -410,9 +467,15 @@ export function registerBotHandlers({
       return;
     }
 
+    const usePreset = ctx.chat.type === "private";
+    const selectedPreset = usePreset ? getStylePreset(record.stylePresetId) : null;
+    if (selectedPreset) await userStore.clearStylePreset(id);
+    const effectivePrompt = promptWithStylePreset(prompt.trim(), selectedPreset);
+    const styleName = selectedPreset?.name || "No preset";
+
     const replyToMessageId = ctx.message?.message_id;
     const status = await ctx.reply(
-      generationProgressText(0, estimatedGenerationMs),
+      generationProgressText(0, estimatedGenerationMs, { styleName }),
       replyOptions(replyToMessageId),
     );
     const stopChatAction = startStickerChatAction(ctx.api, ctx.chat.id, {
@@ -421,6 +484,7 @@ export function registerBotHandlers({
     const progress = startGenerationProgress({
       estimatedMs: estimatedGenerationMs,
       logger,
+      styleName,
       update: (text) => ctx.api.editMessageText(ctx.chat.id, status.message_id, text),
     });
     void processStickerJob({
@@ -428,7 +492,7 @@ export function registerBotHandlers({
       chatId: ctx.chat.id,
       statusMessageId: status.message_id,
       replyToMessageId,
-      prompt: prompt.trim(),
+      prompt: effectivePrompt,
       sourceFileId,
       stopChatAction,
       progress,
@@ -462,7 +526,15 @@ export function registerBotHandlers({
     const inlineHint = ctx.match === "inline-login"
       ? "\n\nTo use inline mode, link your account with /login first."
       : "";
-    return ctx.reply(`${HELP}\n\nHi, ${displayName(ctx)}.${inlineHint}`);
+    const selectedPreset = getStylePreset(userStore.get(userId(ctx))?.stylePresetId);
+    return ctx.reply([
+      "🎨 StickerGen",
+      "",
+      `Hi, ${displayName(ctx)}. Describe any sticker or send a photo. You can include both the subject and its style in your prompt.`,
+      "",
+      `Style: ${selectedPreset?.name || "No preset"} · your prompt decides`,
+      inlineHint,
+    ].join("\n"), { reply_markup: startKeyboard() });
   });
   bot.command("help", (ctx) => ctx.reply(HELP));
   bot.command("login", async (ctx) => {
@@ -504,6 +576,77 @@ export function registerBotHandlers({
     const record = id && userStore.get(id);
     if (!record?.identity) return sendLoginRequired(ctx);
     await ctx.reply(`Linked account: ${record.identity.email || "email unavailable"}${record.identity.plan ? ` (${record.identity.plan})` : ""}`);
+  });
+
+  bot.command("style", async (ctx) => {
+    if (ctx.chat.type !== "private") {
+      await ctx.reply("Style presets can be selected in my private chat. Group and inline requests use the style written in their prompt.");
+      return;
+    }
+    const id = userId(ctx);
+    const selectedPreset = getStylePreset(userStore.get(id)?.stylePresetId);
+    await ctx.reply(styleSelectorText(selectedPreset), {
+      reply_markup: styleKeyboard(selectedPreset?.id),
+    });
+  });
+
+  bot.callbackQuery("help:open", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText(HELP, { reply_markup: startKeyboard() });
+  });
+
+  bot.callbackQuery("style:open", async (ctx) => {
+    if (ctx.chat?.type !== "private") {
+      await ctx.answerCallbackQuery({ text: "Open my private chat to choose a style.", show_alert: true });
+      return;
+    }
+    const id = userId(ctx);
+    const selectedPreset = getStylePreset(userStore.get(id)?.stylePresetId);
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText(styleSelectorText(selectedPreset), {
+      reply_markup: styleKeyboard(selectedPreset?.id),
+    });
+  });
+
+  bot.callbackQuery(/^style:set:([a-z0-9-]+)$/, async (ctx) => {
+    if (ctx.chat?.type !== "private") {
+      await ctx.answerCallbackQuery({ text: "Open my private chat to choose a style.", show_alert: true });
+      return;
+    }
+    const id = userId(ctx);
+    const presetId = ctx.match[1];
+    const selectedPreset = presetId === "none" ? null : getStylePreset(presetId);
+    if (presetId !== "none" && !selectedPreset) {
+      await ctx.answerCallbackQuery({ text: "That style is no longer available.", show_alert: true });
+      return;
+    }
+    if (presetId === "none" && !userStore.get(id)?.stylePresetId) {
+      await ctx.answerCallbackQuery({ text: "No preset is already active." });
+      return;
+    }
+    if (selectedPreset) await userStore.setStylePreset(id, selectedPreset.id);
+    else await userStore.clearStylePreset(id);
+    await ctx.answerCallbackQuery({ text: selectedPreset ? `${selectedPreset.name} selected` : "Preset cleared" });
+    const text = selectedPreset
+      ? [
+          "✅ Style ready",
+          "",
+          `Preset: ${selectedPreset.name}`,
+          selectedPreset.description,
+          "",
+          "It applies to your next private-chat sticker only. Now send a prompt, photo, or edit. Your prompt's own style always takes priority.",
+        ].join("\n")
+      : styleSelectorText(null);
+    await ctx.editMessageText(text, {
+      reply_markup: selectedPreset ? selectedStyleKeyboard() : styleKeyboard(),
+    });
+  });
+
+  bot.callbackQuery("style:close", async (ctx) => {
+    await ctx.answerCallbackQuery();
+    await ctx.editMessageText("Style selector closed. Send a prompt or photo whenever you are ready.", {
+      reply_markup: startKeyboard(),
+    });
   });
 
   bot.on("inline_query", async (ctx) => {
@@ -607,7 +750,6 @@ export function registerBotHandlers({
     const mentionedPrompt = promptFromBotMention(text, ctx.me.username);
     if (!isPrivate && mentionedPrompt === null) return;
     const prompt = mentionedPrompt ?? text;
-    if (!sourceFileId && isPrivate) return;
     await createSticker(ctx, prompt || (sourceFileId ? DEFAULT_PHOTO_PROMPT : ""), sourceFileId);
   });
 

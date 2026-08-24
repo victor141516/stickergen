@@ -35,6 +35,25 @@ export class UserStore {
     await this.persist();
   }
 
+  async setStylePreset(telegramUserId, stylePresetId) {
+    const key = String(telegramUserId);
+    this.state.users[key] = {
+      ...(this.state.users[key] || {}),
+      stylePresetId,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.persist();
+  }
+
+  async clearStylePreset(telegramUserId) {
+    const key = String(telegramUserId);
+    const user = this.state.users[key];
+    if (!user?.stylePresetId) return;
+    delete user.stylePresetId;
+    user.updatedAt = new Date().toISOString();
+    await this.persist();
+  }
+
   async clear(telegramUserId) {
     delete this.state.users[String(telegramUserId)];
     await this.persist();

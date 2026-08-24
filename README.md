@@ -26,6 +26,7 @@ StickerGen links each Telegram user to their own OpenAI/Codex session, generates
 | 🪄 | Create stickers from a text description |
 | 📸 | Transform photos, image documents, and existing stickers |
 | 🧑‍🎨 | Follow style instructions such as pixel art, comic, watercolor, or Paint |
+| 🎛️ | Pick an optional one-use style preset from the private-chat interface |
 | 🫥 | Preserve the alpha channel when OpenAI returns real transparency |
 | 👥 | Work in groups through commands, replies, and mentions |
 | ⚡ | Generate in any chat with `@stickergen_miramacho_bot <prompt>` |
@@ -41,8 +42,10 @@ Open [the bot](https://t.me/stickergen_miramacho_bot), run `/login`, and complet
 | Action | Example |
 | --- | --- |
 | Create from text | `/sticker a waving astronaut raccoon` |
+| Create conversationally | Send `a waving astronaut raccoon` in the private chat |
 | Create from a photo | Send a photo with the caption `as an Advance Wars character` |
 | Edit an image | Reply with `/edit add red sunglasses` |
+| Choose a one-use style | Use `/style` or tap **Choose style** |
 | Invoke it in a group | Reply to an image with `@stickergen_miramacho_bot make it pixel art` |
 | Check the linked account | `/whoami` |
 | Remove the linked session | `/logout` |
@@ -56,6 +59,12 @@ Type this in any chat, even when StickerGen is not a member of the group:
 ```
 
 Choose **Generate sticker**, tap the placeholder button, and wait for the result. Telegram does not provide the replied-to message in an inline query, so editing an image already posted in a chat requires the bot to be present and invoked through a mention or `/edit`.
+
+### 🎨 Style presets
+
+In the private chat, use `/style` or the **Choose style** button to select a preset for the next sticker. The preset is consumed by that request and then automatically resets to **No preset**. A style explicitly written in the new prompt always takes priority over the selected preset, so free-form prompts remain fully supported.
+
+The six initial presets range from a modern sticker treatment to classic print, animation, engraving, and Game Boy Advance-era artwork. Their order, button labels, descriptions, and prompt instructions all live in [`src/styles.json`](src/styles.json), making the catalog easy to revise without changing the selector code. Presets intentionally apply only to private-chat requests; groups and inline mode continue to use the style written directly in each prompt.
 
 ## 🧠 How it works
 
@@ -147,6 +156,8 @@ src/
 ├── codex.js      # Responses client and SSE parser
 ├── index.js      # HTTP server and Telegram webhook
 ├── stickers.js   # Telegram-compatible conversion
+├── styles.js     # preset loading and prompt precedence
+├── styles.json   # editable style catalog and button copy
 └── store.js      # session storage
 ```
 

@@ -83,6 +83,10 @@ test("renders estimated sticker generation progress without reaching 100% early"
     generationProgressText(90_000, 80_000, { complete: true }),
     "🎨 Sticker ready — sending…\n\n🟩🟩🟩🟩🟩🟩🟩🟩🟩🟩\n100%",
   );
+  assert.equal(
+    generationProgressText(0, 80_000, { styleName: "1950s Newspaper Cartoon" }),
+    "🎨 Generating your sticker…\n\n⬜⬜⬜⬜⬜⬜⬜⬜⬜⬜\n0% · ETA ~1m 20s\nStyle: 1950s Newspaper Cartoon · prompt overrides",
+  );
 });
 
 test("updates generation progress independently and stops after completion", async () => {
@@ -235,4 +239,101 @@ test("keeps the choosing-sticker action active until stopped", async () => {
     action: "choose_sticker",
     options: { message_thread_id: 456 },
   });
+});
+
+test("keeps presets out of groups, generates from private text, and consumes a preset once", async () => {
+  const handlers = new Map();
+  const generatedPrompts = [];
+  const sentStickers = [];
+  const user = {
+    sessionToken: "encrypted-session",
+    stylePresetId: "1950s-newspaper",
+  };
+  const api = {
+    async sendChatAction() {},
+    async editMessageText() {},
+    async deleteMessage() {},
+    async sendSticker(chatId, sticker, options) {
+      sentStickers.push({ chatId, sticker, options });
+      return {};
+    },
+  };
+  const bot = {
+    api,
+    command() {},
+    callbackQuery() {},
+    on(event, handler) {
+      handlers.set(Array.isArray(event) ? event.join(",") : event, handler);
+    },
+  };
+  const userStore = {
+    get() {
+      return user;
+    },
+    async setSession() {},
+    async clear() {},
+    async clearStylePreset() {
+      delete user.stylePresetId;
+    },
+  };
+
+  registerBotHandlers({
+    bot,
+    userStore,
+    authService: {
+      async credentials() {
+        return { oauth: { accessToken: "test-token" } };
+      },
+      publicIdentity() {
+        return {};
+      },
+    },
+    async downloadTelegramFile() {
+      throw new Error("No source image expected");
+    },
+    async generateImage({ prompt }) {
+      generatedPrompts.push(prompt);
+      return Buffer.from("generated-image");
+    },
+    async convertToSticker() {
+      return Buffer.from("webp");
+    },
+    async getTransparencyStats() {
+      return { hasAlpha: false, transparentPixels: 0 };
+    },
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  let statusId = 800;
+  const context = (messageId, text, chatType = "private") => ({
+    api,
+    from: { id: 123 },
+    chat: { id: 456, type: chatType },
+    me: { username: "stickergen_bot" },
+    message: { message_id: messageId, text },
+    async reply() {
+      statusId += 1;
+      return { message_id: statusId };
+    },
+  });
+
+  const textHandler = handlers.get("message:text");
+  await textHandler(context(100, "@stickergen_bot A green dragon", "group"));
+  await delay(10);
+  assert.equal(user.stylePresetId, "1950s-newspaper");
+  await textHandler(context(101, "A red robot in watercolor"));
+  await delay(10);
+  await textHandler(context(102, "A blue cat"));
+  await delay(10);
+
+  assert.equal(generatedPrompts.length, 3);
+  assert.equal(generatedPrompts[0], "A green dragon");
+  assert.match(generatedPrompts[1], /A red robot in watercolor/);
+  assert.match(generatedPrompts[1], /1950s newspaper cartoon/i);
+  assert.match(generatedPrompts[1], /ignore the preset/i);
+  assert.equal(generatedPrompts[2], "A blue cat");
+  assert.deepEqual(
+    sentStickers.map(({ options }) => options.reply_parameters.message_id),
+    [100, 101, 102],
+  );
 });
