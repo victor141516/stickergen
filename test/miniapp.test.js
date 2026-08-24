@@ -152,7 +152,22 @@ test("authenticates a generation, streams completion, and sends the sticker", as
 });
 
 test("loads an owned Telegram sticker draft and replies to its source message", async () => {
-  const running = await startService();
+  const contextLoads = [];
+  const rememberedOutputs = [];
+  const running = await startService({
+    async loadConversationContext(request) {
+      contextLoads.push(request);
+      return [
+        { role: "user", text: "Make me a field commander", sourceDataUrl: null },
+        { role: "assistant", text: "I generated the first sticker.", sourceDataUrl: null },
+      ];
+    },
+    conversationStore: {
+      async rememberOutgoing(message) {
+        rememberedOutputs.push(message);
+      },
+    },
+  });
   const initData = authData();
   const draft = running.draftStore.create({
     userId: "123",
@@ -189,7 +204,19 @@ test("loads an owned Telegram sticker draft and replies to its source message", 
     assert.deepEqual(running.downloadedFiles, ["telegram-sticker-file", "telegram-sticker-file"]);
     assert.match(running.generatedRequests[0].prompt, /Advance Wars on Game Boy Advance/);
     assert.equal(running.generatedRequests[0].sourceDataUrl, "data:image/png;base64,c291cmNl");
+    assert.deepEqual(running.generatedRequests[0].conversation, [
+      { role: "user", text: "Make me a field commander", sourceDataUrl: null },
+      { role: "assistant", text: "I generated the first sticker.", sourceDataUrl: null },
+    ]);
     assert.equal(running.sentStickers[0].options.reply_parameters.message_id, 456);
+    assert.deepEqual(contextLoads, [{
+      chatId: 123,
+      messageId: 456,
+      includeTarget: true,
+      excludeFileId: "telegram-sticker-file",
+    }]);
+    assert.equal(rememberedOutputs[0].replyToMessageId, 456);
+    assert.match(rememberedOutputs[0].requestText, /Advance Wars on Game Boy Advance/);
   } finally {
     await running.close();
   }

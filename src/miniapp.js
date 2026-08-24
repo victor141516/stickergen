@@ -125,6 +125,8 @@ export function createMiniAppService({
   estimatedGenerationMs = DEFAULT_GENERATION_ETA_MS,
   logger = console,
   now = Date.now,
+  conversationStore = null,
+  loadConversationContext = async () => [],
 }) {
   const jobs = new Map();
 
@@ -218,6 +220,14 @@ export function createMiniAppService({
       const basePrompt = userPrompt || (draft ? DEFAULT_STICKER_PROMPT : sourceDataUrl ? DEFAULT_SOURCE_PROMPT : "");
       if (!basePrompt) throw new HttpError(400, "Describe a sticker or add a source image first");
       const prompt = promptWithStylePreset(basePrompt, preset);
+      const conversation = draft
+        ? await loadConversationContext({
+            chatId: draft.chatId,
+            messageId: draft.messageId,
+            includeTarget: true,
+            excludeFileId: draft.fileId,
+          })
+        : [];
 
       logger.info("miniapp_sticker_generation_started", JSON.stringify({
         generationId,
@@ -226,7 +236,7 @@ export function createMiniAppService({
         sourceImage: Boolean(sourceDataUrl),
       }));
       updateJob(job, { message: "Creating your sticker image" });
-      const rawImage = await generateImage({ oauth, prompt, sourceDataUrl });
+      const rawImage = await generateImage({ oauth, prompt, sourceDataUrl, conversation });
       const generatedTransparency = await getTransparencyStats(rawImage);
       updateJob(job, { message: "Preparing the Telegram sticker", progress: 94, eta: "Almost there…" });
       const webp = await convertToSticker(rawImage);
@@ -241,6 +251,22 @@ export function createMiniAppService({
         new InputFile(webp, "stickergen-miniapp.webp"),
         replyParameters,
       );
+      if (conversationStore && sentMessage?.message_id) {
+        try {
+          await conversationStore.rememberOutgoing({
+            chatId: draft?.chatId || telegramUser.id,
+            message: sentMessage,
+            replyToMessageId: draft?.messageId || null,
+            text: "I generated and sent the requested sticker from StickerGen.",
+            requestText: prompt,
+            media: sentMessage.sticker?.file_id
+              ? { fileId: sentMessage.sticker.file_id, kind: "sticker", mimeType: "image/webp" }
+              : null,
+          });
+        } catch (error) {
+          logger.error("conversation_message_store_failed", error?.message || error);
+        }
+      }
 
       job.image = webp;
       job.telegramMessageId = sentMessage.message_id;

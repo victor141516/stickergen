@@ -331,17 +331,37 @@ async function parseResponse(response, trace) {
   return image;
 }
 
-function imageInput(prompt, sourceDataUrl) {
-  const content = [{ type: "input_text", text: prompt }];
-  if (sourceDataUrl) content.push({ type: "input_image", image_url: sourceDataUrl });
-  return [{ type: "message", role: "user", content }];
+function conversationInput(conversation = []) {
+  return conversation.flatMap((turn) => {
+    const role = turn?.role === "assistant" ? "assistant" : "user";
+    const content = [];
+    if (typeof turn?.text === "string" && turn.text.trim()) {
+      content.push({
+        type: role === "assistant" ? "output_text" : "input_text",
+        text: turn.text.trim(),
+      });
+    }
+    if (role === "user" && typeof turn?.sourceDataUrl === "string") {
+      content.push({ type: "input_image", image_url: turn.sourceDataUrl });
+    }
+    return content.length ? [{ type: "message", role, content }] : [];
+  });
 }
 
-function requestPayload(prompt, sourceDataUrl, model, sessionId = randomUUID()) {
+function imageInput(prompt, sourceDataUrl, conversation = []) {
+  const content = [{ type: "input_text", text: prompt }];
+  if (sourceDataUrl) content.push({ type: "input_image", image_url: sourceDataUrl });
+  return [
+    ...conversationInput(conversation),
+    { type: "message", role: "user", content },
+  ];
+}
+
+function requestPayload(prompt, sourceDataUrl, conversation, model, sessionId = randomUUID()) {
   return {
     model,
     instructions: "Create a single Telegram sticker image. Follow the user's requested subject, style, and background. If the user requests transparency, use genuine alpha pixels rather than drawing a gray-and-white checkerboard or transparency preview. Do not add a border or text unless the user explicitly asks for it. Return only the generated image.",
-    input: imageInput(prompt, sourceDataUrl),
+    input: imageInput(prompt, sourceDataUrl, conversation),
     // gpt-image-2-codex currently rejects background/input_fidelity controls,
     // so transparency can only be requested semantically.
     tools: [{ type: "image_generation" }],
@@ -357,13 +377,14 @@ export async function generateStickerImage({
   oauth,
   prompt,
   sourceDataUrl,
+  conversation = [],
   fetchImpl = fetch,
   logger = console,
 }) {
   const url = process.env.CODEX_RESPONSES_URL || DEFAULT_URL;
   const model = process.env.CODEX_MODEL || "gpt-5.6-sol";
   const requestId = randomUUID();
-  const payload = requestPayload(prompt, sourceDataUrl, model, requestId);
+  const payload = requestPayload(prompt, sourceDataUrl, conversation, model, requestId);
   const trace = createRequestTrace({ requestId, url, payload, accountId: oauth.accountId });
   try {
     const response = await fetchImpl(url, {

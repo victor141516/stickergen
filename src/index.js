@@ -4,8 +4,10 @@ import { fileURLToPath } from "node:url";
 import { Bot, webhookCallback } from "grammy";
 import { AuthService, createDevelopmentSecret } from "./auth.js";
 import { registerBotHandlers } from "./bot.js";
+import { buildConversationContext, ConversationStore } from "./conversations.js";
 import { MiniAppDraftStore } from "./miniapp-drafts.js";
 import { createMiniAppService } from "./miniapp.js";
+import { stickerDataUrl } from "./stickers.js";
 import { UserStore } from "./store.js";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -26,6 +28,8 @@ const miniAppUrl = process.env.MINI_APP_URL || `${publicBaseUrl}/app`;
 if (new URL(miniAppUrl).protocol !== "https:") throw new Error("MINI_APP_URL must use HTTPS");
 const store = new UserStore(path.join(dataDir, "users.json"));
 await store.init();
+const conversationStore = new ConversationStore(path.join(dataDir, "conversations.json"));
+await conversationStore.init();
 
 const authService = new AuthService({ secret });
 const bot = new Bot(token);
@@ -47,6 +51,7 @@ const botHandlers = registerBotHandlers({
   estimatedGenerationMs: Number(process.env.GENERATION_ETA_MS || 80_000),
   miniAppUrl,
   miniAppDraftStore,
+  conversationStore,
 });
 
 const miniApp = createMiniAppService({
@@ -57,6 +62,21 @@ const miniApp = createMiniAppService({
   loadCredentials: botHandlers.loadCredentials,
   webRoot: path.join(root, "web"),
   estimatedGenerationMs: Number(process.env.GENERATION_ETA_MS || 80_000),
+  conversationStore,
+  loadConversationContext: ({
+    chatId,
+    messageId,
+    includeTarget = true,
+    excludeFileId = null,
+  }) => buildConversationContext({
+    store: conversationStore,
+    chatId,
+    messageId,
+    includeTarget,
+    excludeFileId,
+    downloadTelegramFile,
+    sourceToDataUrl: stickerDataUrl,
+  }),
 });
 
 bot.catch((error) => console.error("telegram update failed", error));

@@ -23,6 +23,7 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - `src/miniapp-drafts.js`: temporary user-bound references to Telegram sticker sources.
 - `src/auth.js`: Codex device login, refresh, identity extraction, and encrypted JWE sessions.
 - `src/codex.js`: private Codex Responses request and JSON/SSE response parsing.
+- `src/conversations.js`: bounded persistent Telegram reply graph and multimodal Codex context reconstruction.
 - `src/stickers.js`: image decoding and the technical WebP conversion required by Telegram.
 - `src/styles.json`: ordered style preset catalog, including button copy and prompt instructions.
 - `src/styles.js`: style catalog validation and user-prompt precedence.
@@ -41,6 +42,9 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - Allow multiple concurrent generations from the same Telegram user.
 - Coalesce overlapping credential refreshes per user so concurrent generations do not rotate the same refresh token twice.
 - In regular chats, reply with the generated sticker to the user's original request when its message ID is available.
+- Make every newly sent regular-chat bot message a Telegram reply when a triggering or source message ID is available.
+- Persist the bounded reply graph without image bytes, reconstruct the available branch before each regular or draft-based generation, and pass earlier user/assistant turns before the current Codex input.
+- Treat unavailable or expired historical Telegram images as optional context: log a safe warning and continue the single generation without them.
 - Inline queries do not contain the replied-to Telegram message. Do not claim inline editing can access that image when the bot is absent from the chat.
 - Group free-text handling must require a mention so the bot does not intercept unrelated conversation.
 - Keep `choose_sticker` refreshed while a normal chat generation is pending and stop it on every completion or failure path.
@@ -76,6 +80,7 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - Confirm both transparent and opaque inputs remain valid through `toStickerWebp`.
 - Keep SSE coverage for correct content types and mislabeled JSON responses.
 - Verify chat-action timers and detached generation promises are always handled on success, rejection, and error paths.
+- Verify private-chat, group, and Mini App edits replay only their own reply branch and retain the current source image as the final user turn.
 
 ## Documentation and deployment
 

@@ -66,6 +66,37 @@ test("builds reply parameters for the original user message", () => {
   assert.deepEqual(replyOptions(), {});
 });
 
+test("normal bot messages reply to the triggering Telegram message", async () => {
+  const commands = new Map();
+  const replies = [];
+  const bot = {
+    api: {},
+    command(name, handler) {
+      commands.set(name, handler);
+    },
+    callbackQuery() {},
+    on() {},
+  };
+  registerBotHandlers({
+    bot,
+    userStore: { get() { return null; } },
+    authService: {},
+    async downloadTelegramFile() {},
+  });
+
+  await commands.get("help")({
+    from: { id: 123 },
+    chat: { id: 123, type: "private" },
+    message: { message_id: 456 },
+    async reply(text, options) {
+      replies.push({ text, options });
+      return { message_id: 457 };
+    },
+  });
+
+  assert.equal(replies[0].options.reply_parameters.message_id, 456);
+});
+
 test("renders estimated sticker generation progress without reaching 100% early", () => {
   assert.equal(
     generationProgressText(0, 80_000),
@@ -479,5 +510,163 @@ test("opens a replied Telegram sticker in the Mini App regardless of the selecte
   assert.equal(
     replies[0].options.reply_markup.inline_keyboard[0][0].web_app.url,
     "https://stickers.example/app?draft=abcdefab-1234-1234-1234-abcdefabcdef",
+  );
+});
+
+test("reconstructs reply context for private edits and mentioned group edits", async () => {
+  const commands = new Map();
+  const handlers = new Map();
+  const generatedRequests = [];
+  const api = {
+    async sendChatAction() {},
+    async editMessageText() {},
+    async deleteMessage() {},
+    async sendSticker(_chatId, _sticker, options) {
+      return {
+        message_id: 900 + generatedRequests.length,
+        sticker: { file_id: `result-${generatedRequests.length}` },
+        reply_to_message: { message_id: options.reply_parameters.message_id },
+      };
+    },
+  };
+  const bot = {
+    api,
+    command(name, handler) {
+      commands.set(name, handler);
+    },
+    callbackQuery() {},
+    on(event, handler) {
+      handlers.set(Array.isArray(event) ? event.join(",") : event, handler);
+    },
+  };
+  const branches = new Map([
+    ["123:30", [
+      {
+        chatId: 123,
+        messageId: 10,
+        replyToMessageId: null,
+        role: "user",
+        text: "Turn my portrait into an old newspaper cartoon",
+        media: { fileId: "portrait", kind: "photo", mimeType: "image/jpeg" },
+      },
+      {
+        chatId: 123,
+        messageId: 20,
+        replyToMessageId: 10,
+        role: "assistant",
+        text: "I generated and sent the requested sticker.",
+        media: { fileId: "private-result", kind: "sticker", mimeType: "image/webp" },
+      },
+    ]],
+    ["-100:60", [
+      {
+        chatId: -100,
+        messageId: 40,
+        replyToMessageId: null,
+        role: "user",
+        text: "@stickergen_bot Make this an Advance Wars commander",
+        media: null,
+      },
+      {
+        chatId: -100,
+        messageId: 50,
+        replyToMessageId: 40,
+        role: "assistant",
+        text: "I generated and sent the requested sticker.",
+        media: { fileId: "group-result", kind: "sticker", mimeType: "image/webp" },
+      },
+    ]],
+  ]);
+  const conversationStore = {
+    thread(chatId, messageId) {
+      return branches.get(`${chatId}:${messageId}`) || [];
+    },
+    async rememberOutgoing() {},
+  };
+
+  registerBotHandlers({
+    bot,
+    userStore: {
+      get() {
+        return { sessionToken: "encrypted-session" };
+      },
+    },
+    authService: {
+      async credentials() {
+        return { oauth: { accessToken: "test-token" } };
+      },
+      publicIdentity() {
+        return {};
+      },
+    },
+    conversationStore,
+    async downloadTelegramFile(fileId) {
+      return Buffer.from(fileId);
+    },
+    async sourceToDataUrl(source) {
+      return `data:image/png;base64,${source.toString("base64")}`;
+    },
+    async generateImage(request) {
+      generatedRequests.push(request);
+      return Buffer.from("generated");
+    },
+    async convertToSticker() {
+      return Buffer.from("webp");
+    },
+    async getTransparencyStats() {
+      return { hasAlpha: false, transparentPixels: 0 };
+    },
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  const context = ({ chatId, chatType, messageId, text, replyFileId, match }) => ({
+    api,
+    from: { id: 123 },
+    chat: { id: chatId, type: chatType },
+    me: { username: "stickergen_bot" },
+    match,
+    message: {
+      message_id: messageId,
+      text,
+      reply_to_message: {
+        message_id: messageId - 10,
+        sticker: { file_id: replyFileId, is_animated: false, is_video: false },
+      },
+    },
+    async reply(_text, options) {
+      return { message_id: messageId + 1, reply_to_message: { message_id: options.reply_parameters.message_id } };
+    },
+  });
+
+  await commands.get("edit")(context({
+    chatId: 123,
+    chatType: "private",
+    messageId: 30,
+    text: "/edit Make the shirt blue",
+    replyFileId: "private-result",
+    match: "Make the shirt blue",
+  }));
+  await handlers.get("message:text")(context({
+    chatId: -100,
+    chatType: "group",
+    messageId: 60,
+    text: "@stickergen_bot Give him a red helmet",
+    replyFileId: "group-result",
+  }));
+  await delay(20);
+
+  assert.equal(generatedRequests.length, 2);
+  assert.match(generatedRequests[0].conversation[0].text, /old newspaper cartoon/);
+  assert.match(generatedRequests[0].conversation[0].sourceDataUrl, /^data:image\/png;base64,/);
+  assert.equal(generatedRequests[0].conversation[1].role, "assistant");
+  assert.equal(
+    generatedRequests[0].sourceDataUrl,
+    `data:image/png;base64,${Buffer.from("private-result").toString("base64")}`,
+  );
+  assert.match(generatedRequests[1].conversation[0].text, /Advance Wars commander/);
+  assert.equal(generatedRequests[1].conversation[1].role, "assistant");
+  assert.equal(
+    generatedRequests[1].sourceDataUrl,
+    `data:image/png;base64,${Buffer.from("group-result").toString("base64")}`,
   );
 });

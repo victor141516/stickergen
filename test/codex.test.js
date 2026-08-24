@@ -55,6 +55,64 @@ test("Codex image edits use the tool controls supported by gpt-image-2-codex", a
   assert.deepEqual(requestBody.tools, [{ type: "image_generation" }]);
 });
 
+test("Codex image request replays the reconstructed multimodal conversation before the new edit", async () => {
+  const expected = "D".repeat(120);
+  let requestBody;
+  const fetchImpl = async (_url, options) => {
+    requestBody = JSON.parse(options.body);
+    const event = {
+      type: "response.output_item.done",
+      item: { type: "image_generation_call", result: expected },
+    };
+    return new Response(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  };
+
+  await generateStickerImage({
+    oauth: { accessToken: "test-token", accountId: "account-1" },
+    prompt: "Now make the uniform blue",
+    sourceDataUrl: "data:image/webp;base64,CURRENT",
+    conversation: [
+      {
+        role: "user",
+        text: "Make me an Advance Wars commander",
+        sourceDataUrl: "data:image/jpeg;base64,ORIGINAL",
+      },
+      {
+        role: "assistant",
+        text: "I generated and sent the requested sticker.",
+      },
+    ],
+    fetchImpl,
+  });
+
+  assert.deepEqual(requestBody.input, [
+    {
+      type: "message",
+      role: "user",
+      content: [
+        { type: "input_text", text: "Make me an Advance Wars commander" },
+        { type: "input_image", image_url: "data:image/jpeg;base64,ORIGINAL" },
+      ],
+    },
+    {
+      type: "message",
+      role: "assistant",
+      content: [{ type: "output_text", text: "I generated and sent the requested sticker." }],
+    },
+    {
+      type: "message",
+      role: "user",
+      content: [
+        { type: "input_text", text: "Now make the uniform blue" },
+        { type: "input_image", image_url: "data:image/webp;base64,CURRENT" },
+      ],
+    },
+  ]);
+});
+
 test("Codex parser accepts SSE even when the response content type says JSON", async () => {
   const expected = "B".repeat(120);
   const fetchImpl = async () => {

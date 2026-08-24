@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { InputFile, InlineKeyboard } from "grammy";
 import { generateStickerImage } from "./codex.js";
+import { buildConversationContext } from "./conversations.js";
 import { stickerDataUrl, toStickerWebp, transparencyStats } from "./stickers.js";
 import { getStylePreset, listStylePresets, promptWithStylePreset } from "./styles.js";
 
@@ -302,12 +303,98 @@ export function registerBotHandlers({
   estimatedGenerationMs = DEFAULT_GENERATION_ETA_MS,
   miniAppUrl = null,
   miniAppDraftStore = null,
+  conversationStore = null,
 }) {
   const pendingLogins = new Map();
   const inlineJobs = new Map();
   const credentialLoads = new Map();
 
-  const sendLoginRequired = (ctx) => ctx.reply("Link your account with /login first. Each Telegram user has their own OpenAI session.");
+  async function rememberOutgoing({
+    chatId,
+    message,
+    replyToMessageId,
+    text = "",
+    media = null,
+    requestText = "",
+  }) {
+    if (!conversationStore) return;
+    try {
+      await conversationStore.rememberOutgoing({
+        chatId,
+        message,
+        replyToMessageId,
+        text,
+        media,
+        requestText,
+      });
+    } catch (error) {
+      logger.error("conversation_message_store_failed", error?.message || error);
+    }
+  }
+
+  async function reply(ctx, text, options = {}, replyToMessageId = null) {
+    const targetMessageId = replyToMessageId
+      || options.reply_parameters?.message_id
+      || ctx.message?.message_id;
+    const sentMessage = await ctx.reply(text, {
+      ...replyOptions(targetMessageId),
+      ...options,
+    });
+    await rememberOutgoing({
+      chatId: ctx.chat?.id,
+      message: sentMessage,
+      replyToMessageId: targetMessageId,
+      text,
+    });
+    return sentMessage;
+  }
+
+  async function sendMessage(chatId, text, options = {}) {
+    const sentMessage = await bot.api.sendMessage(chatId, text, options);
+    await rememberOutgoing({
+      chatId,
+      message: sentMessage,
+      replyToMessageId: options.reply_parameters?.message_id,
+      text,
+    });
+    return sentMessage;
+  }
+
+  async function sendSticker(
+    chatId,
+    sticker,
+    options = {},
+    requestText = "",
+    text = "I generated and sent the requested sticker.",
+  ) {
+    const sentMessage = await bot.api.sendSticker(chatId, sticker, options);
+    await rememberOutgoing({
+      chatId,
+      message: sentMessage,
+      replyToMessageId: options.reply_parameters?.message_id,
+      text,
+      requestText,
+      media: sentMessage?.sticker?.file_id
+        ? { fileId: sentMessage.sticker.file_id, kind: "sticker", mimeType: "image/webp" }
+        : null,
+    });
+    return sentMessage;
+  }
+
+  if (bot.use && conversationStore) {
+    bot.use(async (ctx, next) => {
+      if (ctx.message) {
+        try {
+          await conversationStore.rememberIncoming(ctx.message, ctx.chat?.id);
+        } catch (error) {
+          logger.error("conversation_message_store_failed", error?.message || error);
+        }
+      }
+      await next();
+    });
+  }
+
+  const sendLoginRequired = (ctx) => reply(ctx, "Link your account with /login first. Each Telegram user has their own OpenAI session.");
 
   async function offerMiniAppDraft(ctx, sourceMessage, source) {
     const id = userId(ctx);
@@ -324,7 +411,7 @@ export function registerBotHandlers({
       name: source.name,
       mimeType: source.mimeType,
     });
-    await ctx.reply("This image is ready in StickerGen. Choose a style, add optional instructions, and generate your edited sticker.", {
+    await reply(ctx, "This image is ready in StickerGen. Choose a style, add optional instructions, and generate your edited sticker.", {
       ...replyOptions(sourceMessage.message_id),
       reply_markup: {
         inline_keyboard: [[{
@@ -332,7 +419,7 @@ export function registerBotHandlers({
           web_app: { url: miniAppDraftUrl(miniAppUrl, draft.id) },
         }]],
       },
-    });
+    }, sourceMessage.message_id);
   }
 
   function pruneInlineJobs() {
@@ -375,6 +462,7 @@ export function registerBotHandlers({
     replyToMessageId,
     prompt,
     sourceFileId,
+    conversation,
     stopChatAction,
     progress,
   }) {
@@ -382,7 +470,7 @@ export function registerBotHandlers({
     try {
       const oauth = await loadCredentials(id);
       if (!oauth) {
-        await bot.api.sendMessage(
+        await sendMessage(
           chatId,
           "Link your account with /login first. Each Telegram user has their own OpenAI session.",
           replyOptions(replyToMessageId),
@@ -401,7 +489,7 @@ export function registerBotHandlers({
         sourceImage: Boolean(sourceFileId),
         prompt: prompt.slice(0, 1000),
       }));
-      const rawImage = await generateImage({ oauth, prompt, sourceDataUrl });
+      const rawImage = await generateImage({ oauth, prompt, sourceDataUrl, conversation });
       const generatedTransparency = await getTransparencyStats(rawImage);
       logger.info("sticker_generation_output", JSON.stringify({
         generationId,
@@ -410,9 +498,9 @@ export function registerBotHandlers({
       const webp = await convertToSticker(rawImage);
       const webpTransparency = await getTransparencyStats(webp);
       await progress?.complete();
-      await bot.api.sendSticker(chatId, new InputFile(webp, "sticker.webp"), {
+      await sendSticker(chatId, new InputFile(webp, "sticker.webp"), {
         ...replyOptions(replyToMessageId),
-      });
+      }, prompt);
       logger.info("sticker_generation_sent", JSON.stringify({
         generationId,
         stickerBytes: webp.length,
@@ -426,7 +514,7 @@ export function registerBotHandlers({
         error: message,
       }));
       try {
-        await bot.api.sendMessage(
+        await sendMessage(
           chatId,
           `I could not generate the sticker: ${message}`,
           replyOptions(replyToMessageId),
@@ -527,7 +615,7 @@ export function registerBotHandlers({
     const id = userId(ctx);
     if (!id) return;
     if (!prompt?.trim()) {
-      await ctx.reply("Write a description. Example: /sticker an astronaut fox with a transparent helmet");
+      await reply(ctx, "Write a description. Example: /sticker an astronaut fox with a transparent helmet");
       return;
     }
     const record = userStore.get(id);
@@ -543,7 +631,18 @@ export function registerBotHandlers({
     const styleName = selectedPreset?.name || "No preset";
 
     const replyToMessageId = ctx.message?.message_id;
-    const status = await ctx.reply(
+    const conversation = await buildConversationContext({
+      store: conversationStore,
+      chatId: ctx.chat.id,
+      messageId: replyToMessageId,
+      includeTarget: false,
+      downloadTelegramFile,
+      sourceToDataUrl,
+      logger,
+      excludeFileId: sourceFileId,
+    });
+    const status = await reply(
+      ctx,
       generationProgressText(0, estimatedGenerationMs, { styleName }),
       replyOptions(replyToMessageId),
     );
@@ -563,6 +662,7 @@ export function registerBotHandlers({
       replyToMessageId,
       prompt: effectivePrompt,
       sourceFileId,
+      conversation,
       stopChatAction,
       progress,
     }).catch((error) => logger.error("detached_sticker_generation_failed", error));
@@ -596,7 +696,7 @@ export function registerBotHandlers({
       ? "\n\nTo use inline mode, link your account with /login first."
       : "";
     const selectedPreset = getStylePreset(userStore.get(userId(ctx))?.stylePresetId);
-    return ctx.reply([
+    return reply(ctx, [
       "🎨 StickerGen",
       "",
       `Hi, ${displayName(ctx)}. Describe any sticker or send a photo. You can include both the subject and its style in your prompt.`,
@@ -607,13 +707,13 @@ export function registerBotHandlers({
       reply_markup: startKeyboard(ctx.chat.type === "private" ? miniAppUrl : null),
     });
   });
-  bot.command("help", (ctx) => ctx.reply(HELP));
+  bot.command("help", (ctx) => reply(ctx, HELP));
   bot.command("login", async (ctx) => {
     const id = userId(ctx);
     if (!id) return;
     const existing = pendingLogins.get(id);
     if (existing) {
-      await ctx.reply("A login is already pending. Open the previous link or wait for it to expire.");
+      await reply(ctx, "A login is already pending. Open the previous link or wait for it to expire.");
       return;
     }
     try {
@@ -626,41 +726,41 @@ export function registerBotHandlers({
         "The code expires in 15 minutes. Do not share it with anyone.",
         "Waiting for authorization…",
       ].join("\n");
-      const message = await ctx.reply(text, {
+      const message = await reply(ctx, text, {
         reply_markup: new InlineKeyboard().url("Open Codex login", details.verificationUrl),
       });
       pendingLogins.set(id, { loginId: details.loginId, interval: details.interval, timer: null });
       await pollLogin(id, ctx.chat.id, message.message_id, details.loginId);
     } catch (error) {
-      await ctx.reply(`I could not start the OpenAI login: ${error.message}`);
+      await reply(ctx, `I could not start the OpenAI login: ${error.message}`);
     }
   });
 
   bot.command("logout", async (ctx) => {
     const id = userId(ctx);
     if (id) await userStore.clear(id);
-    await ctx.reply("I removed the OpenAI session associated with your Telegram account.");
+    await reply(ctx, "I removed the OpenAI session associated with your Telegram account.");
   });
 
   bot.command("whoami", async (ctx) => {
     const id = userId(ctx);
     const record = id && userStore.get(id);
     if (!record?.identity) return sendLoginRequired(ctx);
-    await ctx.reply(`Linked account: ${record.identity.email || "email unavailable"}${record.identity.plan ? ` (${record.identity.plan})` : ""}`);
+    await reply(ctx, `Linked account: ${record.identity.email || "email unavailable"}${record.identity.plan ? ` (${record.identity.plan})` : ""}`);
   });
 
   bot.command("app", async (ctx) => {
     if (ctx.chat.type !== "private") {
-      await ctx.reply("Open my private chat to use the StickerGen Mini App.");
+      await reply(ctx, "Open my private chat to use the StickerGen Mini App.");
       return;
     }
     if (!miniAppUrl) {
-      await ctx.reply("The StickerGen Mini App is not configured yet.");
+      await reply(ctx, "The StickerGen Mini App is not configured yet.");
       return;
     }
     const repliedMessage = ctx.message?.reply_to_message;
     if (repliedMessage?.sticker?.is_animated || repliedMessage?.sticker?.is_video) {
-      await ctx.reply("I can currently open static stickers in the Mini App. Use a still image for animated or video stickers.");
+      await reply(ctx, "I can currently open static stickers in the Mini App. Use a still image for animated or video stickers.");
       return;
     }
     const source = miniAppSourceFromMessage(repliedMessage);
@@ -668,7 +768,7 @@ export function registerBotHandlers({
       await offerMiniAppDraft(ctx, repliedMessage, source);
       return;
     }
-    await ctx.reply("Open the sticker studio to create from a prompt, upload an image, or choose a style.", {
+    await reply(ctx, "Open the sticker studio to create from a prompt, upload an image, or choose a style.", {
       reply_markup: {
         inline_keyboard: [[{ text: "✦ Open StickerGen", web_app: { url: miniAppUrl } }]],
       },
@@ -677,12 +777,12 @@ export function registerBotHandlers({
 
   bot.command("style", async (ctx) => {
     if (ctx.chat.type !== "private") {
-      await ctx.reply("Style presets can be selected in my private chat. Group and inline requests use the style written in their prompt.");
+      await reply(ctx, "Style presets can be selected in my private chat. Group and inline requests use the style written in their prompt.");
       return;
     }
     const id = userId(ctx);
     const selectedPreset = getStylePreset(userStore.get(id)?.stylePresetId);
-    await ctx.reply(styleSelectorText(selectedPreset), {
+    await reply(ctx, styleSelectorText(selectedPreset), {
       reply_markup: styleKeyboard(selectedPreset?.id),
     });
   });
@@ -835,7 +935,7 @@ export function registerBotHandlers({
   bot.command("edit", async (ctx) => {
     const sourceFileId = sourceImageFileId(ctx);
     if (!sourceFileId) {
-      await ctx.reply("Reply to a sticker or photo with /edit and describe the change you want.");
+      await reply(ctx, "Reply to a sticker or photo with /edit and describe the change you want.");
       return;
     }
     await createSticker(ctx, ctx.match, sourceFileId);
@@ -866,7 +966,7 @@ export function registerBotHandlers({
   bot.on("message:sticker", async (ctx) => {
     if (ctx.chat.type !== "private") return;
     if (ctx.message.sticker.is_animated || ctx.message.sticker.is_video) {
-      await ctx.reply("I can currently restyle static stickers only. Send a static sticker, or use a still image from this one.");
+      await reply(ctx, "I can currently restyle static stickers only. Send a static sticker, or use a still image from this one.");
       return;
     }
     const id = userId(ctx);
