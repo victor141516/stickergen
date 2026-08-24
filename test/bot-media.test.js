@@ -412,10 +412,72 @@ test("offers an unstyled private sticker to the Mini App as an owned draft", asy
     fileId: "telegram-sticker",
     chatId: 123,
     messageId: 456,
+    name: "Telegram sticker",
+    mimeType: "image/webp",
   }]);
   assert.equal(replies[0].options.reply_parameters.message_id, 456);
   assert.equal(
     replies[0].options.reply_markup.inline_keyboard[0][0].web_app.url,
     "https://stickers.example/app?draft=12345678-1234-1234-1234-123456789abc",
+  );
+});
+
+test("opens a replied Telegram sticker in the Mini App regardless of the selected chat preset", async () => {
+  const commands = new Map();
+  const replies = [];
+  const createdDrafts = [];
+  const bot = {
+    api: {},
+    command(name, handler) {
+      commands.set(name, handler);
+    },
+    callbackQuery() {},
+    on() {},
+  };
+  registerBotHandlers({
+    bot,
+    userStore: {
+      get() {
+        return { sessionToken: "encrypted-session", stylePresetId: "gba-tactics" };
+      },
+    },
+    authService: {},
+    async downloadTelegramFile() {},
+    miniAppUrl: "https://stickers.example/app",
+    miniAppDraftStore: {
+      create(draft) {
+        createdDrafts.push(draft);
+        return { ...draft, id: "abcdefab-1234-1234-1234-abcdefabcdef" };
+      },
+    },
+  });
+
+  await commands.get("app")({
+    from: { id: 123 },
+    chat: { id: 123, type: "private" },
+    message: {
+      message_id: 500,
+      reply_to_message: {
+        message_id: 456,
+        sticker: { file_id: "replied-sticker", is_animated: false, is_video: false },
+      },
+    },
+    async reply(text, options) {
+      replies.push({ text, options });
+    },
+  });
+
+  assert.deepEqual(createdDrafts, [{
+    userId: "123",
+    fileId: "replied-sticker",
+    chatId: 123,
+    messageId: 456,
+    name: "Telegram sticker",
+    mimeType: "image/webp",
+  }]);
+  assert.equal(replies[0].options.reply_parameters.message_id, 456);
+  assert.equal(
+    replies[0].options.reply_markup.inline_keyboard[0][0].web_app.url,
+    "https://stickers.example/app?draft=abcdefab-1234-1234-1234-abcdefabcdef",
   );
 });

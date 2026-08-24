@@ -101,7 +101,7 @@ await bot.api.setWebhook(`${publicBaseUrl}${webhookPath}`, {
 console.log(`Telegram webhook configured at ${publicBaseUrl}${webhookPath}`);
 
 await bot.api.setMyCommands([
-  { command: "app", description: "Open the visual sticker studio" },
+  { command: "app", description: "Open the studio or edit a replied image" },
   { command: "sticker", description: "Create a sticker from a description" },
   { command: "edit", description: "Edit a replied-to sticker or photo" },
   { command: "style", description: "Choose a style for your next sticker" },

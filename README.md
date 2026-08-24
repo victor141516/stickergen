@@ -72,7 +72,7 @@ The six initial presets range from a modern sticker treatment to classic print, 
 
 Use `/app`, the **Open StickerGen** button, or the bot's menu button to launch the visual studio inside Telegram. The Mini App supports a free-form prompt, the same JSON-defined style presets, PNG/JPG/WebP uploads, live SSE progress, and an in-app preview. The finished WebP is also sent to the user's private Telegram chat as a native sticker.
 
-To restyle an existing static Telegram sticker, send it to the bot without first selecting a one-use chat preset. StickerGen replies with **Edit in StickerGen** and creates a temporary in-process draft bound to that Telegram user. The Mini App can then display the source, apply a preset or free-form style, and reply to the original sticker. Drafts and generated previews expire after one hour and are not persisted or queued.
+To restyle an existing static Telegram sticker, reply to it with `/app`, or send it directly to the bot without first selecting a one-use chat preset. StickerGen replies with **Edit in StickerGen** and creates a temporary in-process draft bound to that Telegram user and source message. The same `/app` reply flow also accepts Telegram photos and image documents. The Mini App can then display the exact source, apply a preset or free-form style, and reply to the original message. Drafts and generated previews expire after one hour and are not persisted or queued.
 
 Every Mini App API request validates the signed `Telegram.WebApp.initData` server-side before using its Telegram user ID to load the existing encrypted Codex session. Uploaded image bytes, generated previews, draft file identifiers, and jobs remain in memory only. Several users and several requests from one user can generate concurrently.
 

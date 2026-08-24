@@ -33,6 +33,7 @@ const elements = {
   sourceThumb: document.querySelector("#source-thumb"),
   sourceTitleText: document.querySelector("#source-title-text"),
   styleGrid: document.querySelector("#style-grid"),
+  telegramSourceHelp: document.querySelector("#telegram-source-help"),
   tryAgain: document.querySelector("#try-again"),
 };
 
@@ -142,6 +143,7 @@ function clearSource() {
   elements.sourceInput.value = "";
   elements.sourcePreview.hidden = true;
   elements.sourceDropzone.hidden = false;
+  elements.telegramSourceHelp.hidden = false;
   elements.sourceThumb.removeAttribute("src");
 }
 
@@ -150,6 +152,7 @@ function showSource({ src, name, meta }) {
   elements.sourceName.textContent = name;
   elements.sourceMeta.textContent = meta;
   elements.sourceDropzone.hidden = true;
+  elements.telegramSourceHelp.hidden = true;
   elements.sourcePreview.hidden = false;
 }
 
@@ -338,6 +341,24 @@ function bindEvents() {
   });
   elements.makeAnother.addEventListener("click", resetAfterResult);
   elements.closeApp.addEventListener("click", () => telegram?.close());
+  elements.telegramSourceHelp.addEventListener("click", () => {
+    haptic();
+    const message = "Close the studio, reply to the sticker or photo with /app, then tap “Edit in StickerGen”. The bot will load that exact image and remember its original message.";
+    if (telegram?.showPopup) {
+      telegram.showPopup({
+        title: "Use an image from Telegram",
+        message,
+        buttons: [
+          { id: "close", type: "default", text: "Close and choose it" },
+          { type: "cancel" },
+        ],
+      }, (buttonId) => {
+        if (buttonId === "close") telegram.close();
+      });
+    } else {
+      window.alert(message);
+    }
+  });
 
   for (const eventName of ["dragenter", "dragover"]) {
     elements.sourceDropzone.addEventListener(eventName, (event) => {

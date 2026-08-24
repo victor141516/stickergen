@@ -47,6 +47,7 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - Keep each request's progress message updating independently, cap estimated progress at 90% until completion, and stop its timer on every success or failure path.
 - Keep style presets optional and one-use. Apply them only to private-chat requests, and always give an explicit style in the current user prompt priority over the preset.
 - Accept a static sticker sent directly in private chat as a source image so a selected preset can restyle it. Do not intercept standalone stickers in groups.
+- When `/app` replies to a static sticker, photo, or image document in private chat, create a user-bound Mini App draft for that exact source message regardless of the currently selected chat preset.
 - Validate Mini App `initData` on every protected API request and bind jobs, drafts, previews, and Telegram file identifiers to the validated user ID.
 - Keep Mini App jobs concurrent and in-process. Stream progress with SSE; do not introduce a queue, worker, or external persistence service.
 - Never put Mini App `initData`, source images, output images, Telegram file identifiers, or Codex credentials in URLs or logs.

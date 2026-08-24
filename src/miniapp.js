@@ -318,12 +318,12 @@ export function createMiniAppService({
           const source = await downloadTelegramFile(draft.fileId);
           response.writeHead(200, {
             "Cache-Control": "private, no-store",
-            "Content-Type": "image/webp",
+            "Content-Type": draft.mimeType,
             "X-Content-Type-Options": "nosniff",
           });
           response.end(source);
         } else {
-          json(response, 200, { id: draft.id, name: draft.name });
+          json(response, 200, { id: draft.id, name: draft.name, mimeType: draft.mimeType });
         }
         return true;
       }

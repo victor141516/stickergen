@@ -20,7 +20,14 @@ export class MiniAppDraftStore {
     }
   }
 
-  create({ userId, fileId, chatId, messageId, name = "Telegram sticker" }) {
+  create({
+    userId,
+    fileId,
+    chatId,
+    messageId,
+    name = "Telegram sticker",
+    mimeType = "image/webp",
+  }) {
     this.prune();
     const id = randomUUID();
     const draft = {
@@ -30,6 +37,7 @@ export class MiniAppDraftStore {
       chatId,
       messageId,
       name,
+      mimeType,
       createdAt: this.now(),
       expiresAt: this.now() + this.ttlMs,
     };

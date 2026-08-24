@@ -10,7 +10,7 @@ const HELP = [
   "/login — link your OpenAI/Codex account",
   "/sticker <description> — create a sticker",
   "/edit <change> — reply to a sticker or photo to edit it",
-  "/app — open the visual sticker studio",
+  "/app — open the studio, or reply to an image to edit it",
   "/style — choose an optional style for your next sticker",
   "/whoami — show the linked account",
   "/logout — remove your session from this bot",
@@ -50,6 +50,32 @@ function miniAppDraftUrl(miniAppUrl, draftId) {
   const url = new URL(miniAppUrl);
   url.searchParams.set("draft", draftId);
   return url.toString();
+}
+
+function miniAppSourceFromMessage(message) {
+  if (message?.sticker && !message.sticker.is_animated && !message.sticker.is_video) {
+    return {
+      fileId: message.sticker.file_id,
+      mimeType: "image/webp",
+      name: "Telegram sticker",
+    };
+  }
+  const photos = message?.photo;
+  if (Array.isArray(photos) && photos.length) {
+    return {
+      fileId: photos.at(-1).file_id,
+      mimeType: "image/jpeg",
+      name: "Telegram photo",
+    };
+  }
+  if (message?.document?.mime_type?.startsWith("image/")) {
+    return {
+      fileId: message.document.file_id,
+      mimeType: message.document.mime_type,
+      name: message.document.file_name || "Telegram image",
+    };
+  }
+  return null;
 }
 
 function styleKeyboard(selectedId = null) {
@@ -282,6 +308,32 @@ export function registerBotHandlers({
   const credentialLoads = new Map();
 
   const sendLoginRequired = (ctx) => ctx.reply("Link your account with /login first. Each Telegram user has their own OpenAI session.");
+
+  async function offerMiniAppDraft(ctx, sourceMessage, source) {
+    const id = userId(ctx);
+    const record = userStore.get(id);
+    if (!record?.sessionToken) {
+      await sendLoginRequired(ctx);
+      return;
+    }
+    const draft = miniAppDraftStore.create({
+      userId: id,
+      fileId: source.fileId,
+      chatId: ctx.chat.id,
+      messageId: sourceMessage.message_id,
+      name: source.name,
+      mimeType: source.mimeType,
+    });
+    await ctx.reply("This image is ready in StickerGen. Choose a style, add optional instructions, and generate your edited sticker.", {
+      ...replyOptions(sourceMessage.message_id),
+      reply_markup: {
+        inline_keyboard: [[{
+          text: "✦ Edit in StickerGen",
+          web_app: { url: miniAppDraftUrl(miniAppUrl, draft.id) },
+        }]],
+      },
+    });
+  }
 
   function pruneInlineJobs() {
     const now = Date.now();
@@ -606,6 +658,16 @@ export function registerBotHandlers({
       await ctx.reply("The StickerGen Mini App is not configured yet.");
       return;
     }
+    const repliedMessage = ctx.message?.reply_to_message;
+    if (repliedMessage?.sticker?.is_animated || repliedMessage?.sticker?.is_video) {
+      await ctx.reply("I can currently open static stickers in the Mini App. Use a still image for animated or video stickers.");
+      return;
+    }
+    const source = miniAppSourceFromMessage(repliedMessage);
+    if (source && miniAppDraftStore) {
+      await offerMiniAppDraft(ctx, repliedMessage, source);
+      return;
+    }
     await ctx.reply("Open the sticker studio to create from a prompt, upload an image, or choose a style.", {
       reply_markup: {
         inline_keyboard: [[{ text: "✦ Open StickerGen", web_app: { url: miniAppUrl } }]],
@@ -810,25 +872,7 @@ export function registerBotHandlers({
     const id = userId(ctx);
     const record = userStore.get(id);
     if (miniAppUrl && miniAppDraftStore && !record?.stylePresetId) {
-      if (!record?.sessionToken) {
-        await sendLoginRequired(ctx);
-        return;
-      }
-      const draft = miniAppDraftStore.create({
-        userId: id,
-        fileId: ctx.message.sticker.file_id,
-        chatId: ctx.chat.id,
-        messageId: ctx.message.message_id,
-      });
-      await ctx.reply("Choose a new style, add optional instructions, and restyle this sticker in the Mini App.", {
-        ...replyOptions(ctx.message.message_id),
-        reply_markup: {
-          inline_keyboard: [[{
-            text: "✦ Edit in StickerGen",
-            web_app: { url: miniAppDraftUrl(miniAppUrl, draft.id) },
-          }]],
-        },
-      });
+      await offerMiniAppDraft(ctx, ctx.message, miniAppSourceFromMessage(ctx.message));
       return;
     }
     await createSticker(ctx, DEFAULT_STICKER_RESTYLE_PROMPT, ctx.message.sticker.file_id);
