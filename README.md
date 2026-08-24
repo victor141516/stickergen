@@ -35,6 +35,7 @@ StickerGen links each Telegram user to their own OpenAI/Codex session, generates
 | 🧠 | Preserve the reply-chain context when refining generated stickers |
 | 🔐 | Keep a separate encrypted Codex session for every user |
 | 🧵 | Run multiple sticker generations concurrently |
+| 🟢 | Receive a transparent PNG beside every sticker for WhatsApp's built-in sticker creator |
 | 🐳 | Deploy as a single Docker service behind an HTTPS webhook |
 
 ## 💬 How to use it
@@ -96,6 +97,8 @@ Each request starts its own asynchronous generation, so several stickers can be 
 In regular chats, every new bot message replies to the triggering message whenever Telegram provides one, and the generated sticker replies to the user's original request so concurrent results remain easy to match. StickerGen keeps a bounded index of the messages and Telegram image references it has seen. When a new request replies into an existing branch, the bot replays the available user and assistant turns—plus available source images—before the new prompt in the Codex request. This works in private chats, mentioned group threads, and Mini App drafts. Telegram inline mode does not expose an original chat message to reply to, so inline results continue through their placeholder flow without reconstructed chat context.
 
 While a request is running, the bot updates a ten-block progress bar and an approximate ETA in the temporary status message. The initial 80-second estimate comes from observed production timings and can be configured with `GENERATION_ETA_MS`. Progress stops at 90% until Codex finishes because the upstream API does not report real completion percentages. In regular chats, Telegram also displays the **choosing a sticker** action until the job completes or fails.
+
+Every generated sticker is followed by a lossless PNG export that preserves the generated alpha channel. Download it, then use **Stickers → Create** in WhatsApp and select the PNG. WhatsApp's official third-party pack API requires 3–30 stickers, so StickerGen deliberately uses WhatsApp's built-in one-at-a-time creator instead of fabricating a pack or requiring a separate sticker-maker app. Inline generations deliver this export to the user's private StickerGen chat because the bot may not belong to the destination chat.
 
 ## 🔐 Sessions and privacy
 

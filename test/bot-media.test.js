@@ -65,6 +65,7 @@ test("automatically starts a chosen inline result and reveals the send button on
   const inlineAnswers = [];
   const edits = [];
   const generated = [];
+  const whatsappExports = [];
   let finishGeneration;
   const api = {
     async editMessageTextInline(inlineMessageId, text, options) {
@@ -73,6 +74,10 @@ test("automatically starts a chosen inline result and reveals the send button on
     },
     async sendSticker() {
       return { message_id: 700, sticker: { file_id: "ready-sticker-file" } };
+    },
+    async sendDocument(chatId, file, options) {
+      whatsappExports.push({ chatId, file, options });
+      return { message_id: 701 };
     },
     async deleteMessage() {},
   };
@@ -111,6 +116,9 @@ test("automatically starts a chosen inline result and reveals the send button on
     },
     async convertToSticker() {
       return Buffer.from("webp");
+    },
+    async convertToWhatsAppExport() {
+      return Buffer.from("png");
     },
     async getTransparencyStats() {
       return { hasAlpha: false, transparentPixels: 0 };
@@ -163,6 +171,9 @@ test("automatically starts a chosen inline result and reveals the send button on
     readyEdit.options.reply_markup.inline_keyboard[0][0].switch_inline_query_current_chat,
     `ready:${jobId}`,
   );
+  assert.equal(whatsappExports.length, 1);
+  assert.equal(whatsappExports[0].chatId, "123");
+  assert.match(whatsappExports[0].options.caption, /WhatsApp export/);
 
   await handlers.get("inline_query")({
     from: { id: 123 },
@@ -280,6 +291,7 @@ test("runs multiple requests from one user concurrently and replies to each orig
   const generations = [];
   const statusReplies = [];
   const sentStickers = [];
+  const whatsappExports = [];
   let credentialCalls = 0;
   let resolveCredentials;
   let nextStatusMessageId = 900;
@@ -290,7 +302,11 @@ test("runs multiple requests from one user concurrently and replies to each orig
     async sendChatAction() {},
     async sendSticker(chatId, sticker, options) {
       sentStickers.push({ chatId, sticker, options });
-      return {};
+      return { message_id: 800 + sentStickers.length };
+    },
+    async sendDocument(chatId, document, options) {
+      whatsappExports.push({ chatId, document, options });
+      return { message_id: 900 + whatsappExports.length };
     },
     async deleteMessage() {},
   };
@@ -332,6 +348,9 @@ test("runs multiple requests from one user concurrently and replies to each orig
     },
     async convertToSticker(image) {
       return Buffer.from(image);
+    },
+    async convertToWhatsAppExport(image) {
+      return Buffer.from(`png-${image}`);
     },
     async getTransparencyStats() {
       return { hasAlpha: false, transparentPixels: 0 };
@@ -375,6 +394,10 @@ test("runs multiple requests from one user concurrently and replies to each orig
   assert.deepEqual(
     sentStickers.map(({ options }) => options.reply_parameters.message_id),
     [102, 101],
+  );
+  assert.deepEqual(
+    whatsappExports.map(({ options }) => options.reply_parameters.message_id),
+    [801, 802],
   );
 });
 

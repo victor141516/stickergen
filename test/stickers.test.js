@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import sharp from "sharp";
-import { stickerDataUrl, toStickerWebp, transparencyStats } from "../src/stickers.js";
+import {
+  stickerDataUrl,
+  toStickerWebp,
+  toWhatsAppExportPng,
+  transparencyStats,
+} from "../src/stickers.js";
 
 test("generated image is converted to a Telegram-compatible webp sticker", async () => {
   const source = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -43,4 +48,21 @@ test("sticker conversion preserves transparent and opaque backgrounds", async ()
 
   assert.ok((await transparencyStats(transparentSticker)).clearPixelRatio > 0.5);
   assert.equal((await transparencyStats(opaqueSticker)).clearPixelRatio, 0);
+});
+
+test("WhatsApp export is a PNG that preserves transparent and opaque backgrounds", async () => {
+  const transparent = await sharp({
+    create: { width: 32, height: 32, channels: 4, background: { r: 10, g: 20, b: 30, alpha: 0 } },
+  }).png().toBuffer();
+  const opaque = await sharp({
+    create: { width: 32, height: 32, channels: 3, background: { r: 10, g: 20, b: 30 } },
+  }).jpeg().toBuffer();
+
+  const transparentExport = await toWhatsAppExportPng(transparent);
+  const opaqueExport = await toWhatsAppExportPng(opaque);
+
+  assert.equal(transparentExport.subarray(1, 4).toString("ascii"), "PNG");
+  assert.equal(opaqueExport.subarray(1, 4).toString("ascii"), "PNG");
+  assert.ok((await transparencyStats(transparentExport)).clearPixelRatio > 0.9);
+  assert.equal((await transparencyStats(opaqueExport)).clearPixelRatio, 0);
 });

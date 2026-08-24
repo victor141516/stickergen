@@ -36,7 +36,7 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - Generate exactly once per user request. Do not reject, retry, or suppress an image based on transparency.
 - Do not remove backgrounds, segment subjects, or otherwise alter generated image content locally.
 - Preserve alpha when OpenAI returns alpha. Opaque OpenAI images must remain valid and be sent.
-- Limit local image work to decoding, orientation, resizing, WebP encoding, and compression needed for Telegram's static sticker limits.
+- Limit local image work to decoding, orientation, resizing, WebP encoding, and compression needed for Telegram's static sticker limits, plus lossless PNG encoding for the user-requested WhatsApp export.
 - Keep authentication isolated per Telegram user. Never reuse one user's Codex session for another user.
 - Start each generation as an independent asynchronous job. Do not serialize requests or add an internal or external queue.
 - Allow multiple concurrent generations from the same Telegram user.

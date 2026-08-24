@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { InputFile, InlineKeyboard } from "grammy";
 import { generateStickerImage } from "./codex.js";
 import { buildConversationContext } from "./conversations.js";
-import { stickerDataUrl, toStickerWebp, transparencyStats } from "./stickers.js";
+import {
+  stickerDataUrl,
+  toStickerWebp,
+  toWhatsAppExportPng,
+  transparencyStats,
+} from "./stickers.js";
 import { getStylePreset, listStylePresets, promptWithStylePreset } from "./styles.js";
 
 const HELP = [
@@ -32,6 +37,8 @@ const INLINE_JOB_TTL_MS = 60 * 60 * 1000;
 const DEFAULT_GENERATION_ETA_MS = 80_000;
 const PROGRESS_INTERVAL_MS = 8_000;
 const PROGRESS_BLOCKS = 10;
+const WHATSAPP_EXPORT_CAPTION =
+  "WhatsApp export: download this PNG, then open WhatsApp → Stickers → Create and select it.";
 
 function startKeyboard(miniAppUrl = null) {
   const rows = [];
@@ -297,6 +304,7 @@ export function registerBotHandlers({
   downloadTelegramFile,
   generateImage = generateStickerImage,
   convertToSticker = toStickerWebp,
+  convertToWhatsAppExport = toWhatsAppExportPng,
   getTransparencyStats = transparencyStats,
   sourceToDataUrl = stickerDataUrl,
   logger = console,
@@ -379,6 +387,29 @@ export function registerBotHandlers({
         : null,
     });
     return sentMessage;
+  }
+
+  async function sendWhatsAppExport(chatId, image, replyToMessageId, context = {}) {
+    try {
+      const png = await convertToWhatsAppExport(image);
+      await bot.api.sendDocument(
+        chatId,
+        new InputFile(png, "stickergen-whatsapp.png"),
+        {
+          ...replyOptions(replyToMessageId),
+          caption: WHATSAPP_EXPORT_CAPTION,
+        },
+      );
+      logger.info("whatsapp_export_sent", JSON.stringify({
+        ...context,
+        exportBytes: png.length,
+      }));
+    } catch (error) {
+      logger.error("whatsapp_export_failed", JSON.stringify({
+        ...context,
+        error: error?.message || "unknown error",
+      }));
+    }
   }
 
   if (bot.use && conversationStore) {
@@ -498,9 +529,15 @@ export function registerBotHandlers({
       const webp = await convertToSticker(rawImage);
       const webpTransparency = await getTransparencyStats(webp);
       await progress?.complete();
-      await sendSticker(chatId, new InputFile(webp, "sticker.webp"), {
+      const sentSticker = await sendSticker(chatId, new InputFile(webp, "sticker.webp"), {
         ...replyOptions(replyToMessageId),
       }, prompt);
+      await sendWhatsAppExport(
+        chatId,
+        rawImage,
+        sentSticker?.message_id || replyToMessageId,
+        { generationId },
+      );
       logger.info("sticker_generation_sent", JSON.stringify({
         generationId,
         stickerBytes: webp.length,
@@ -584,6 +621,7 @@ export function registerBotHandlers({
         jobId,
         stickerBytes: webp.length,
       }));
+      await sendWhatsAppExport(job.userId, rawImage, null, { generationId, jobId });
     } catch (error) {
       const message = error?.message || "unknown error";
       job.status = "failed";

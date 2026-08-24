@@ -65,6 +65,15 @@ export async function toStickerWebp(imageValue) {
   throw new Error("The generated image is too large for a Telegram sticker");
 }
 
+export async function toWhatsAppExportPng(imageValue) {
+  const input = await decodeImage(imageValue);
+  if (!input) throw new Error("The generated image is not in a usable format");
+  return sharp(input)
+    .rotate()
+    .png({ compressionLevel: 9 })
+    .toBuffer();
+}
+
 export async function stickerDataUrl(buffer) {
   const png = await sharp(buffer).png().toBuffer();
   return `data:image/png;base64,${png.toString("base64")}`;
