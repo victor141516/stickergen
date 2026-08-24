@@ -786,15 +786,25 @@ export function registerBotHandlers({
     }
     try {
       const details = await authService.startDeviceLogin();
-      const text = [
+      const beforeCode = [
         "To link your OpenAI account:",
         `1. Open ${details.verificationUrl}`,
-        `2. Enter this code: ${details.userCode}`,
+        "2. Enter this code:",
+        "",
+      ].join("\n");
+      const afterCode = [
+        "",
         "",
         "The code expires in 15 minutes. Do not share it with anyone.",
         "Waiting for authorization…",
       ].join("\n");
+      const text = `${beforeCode}${details.userCode}${afterCode}`;
       const message = await reply(ctx, text, {
+        entities: [{
+          type: "pre",
+          offset: beforeCode.length,
+          length: details.userCode.length,
+        }],
         reply_markup: new InlineKeyboard().url("Open Codex login", details.verificationUrl),
       });
       pendingLogins.set(id, { loginId: details.loginId, interval: details.interval, timer: null });

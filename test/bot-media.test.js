@@ -234,6 +234,68 @@ test("normal bot messages reply to the triggering Telegram message", async () =>
   assert.equal(replies[0].options.reply_parameters.message_id, 456);
 });
 
+test("formats the device login code as a tappable code block", async () => {
+  const commands = new Map();
+  const replies = [];
+  const edits = [];
+  const bot = {
+    api: {
+      async editMessageText(chatId, messageId, text) {
+        edits.push({ chatId, messageId, text });
+      },
+    },
+    command(name, handler) {
+      commands.set(name, handler);
+    },
+    callbackQuery() {},
+    on() {},
+  };
+  registerBotHandlers({
+    bot,
+    userStore: {
+      get() {
+        return null;
+      },
+      async setSession() {},
+    },
+    authService: {
+      async startDeviceLogin() {
+        return {
+          verificationUrl: "https://example.com/device",
+          userCode: "ABCD-EFGH",
+          loginId: "login-id",
+          interval: 5,
+        };
+      },
+      async pollDeviceLogin() {
+        return {
+          status: "complete",
+          token: "encrypted-session",
+          user: { email: "user@example.com" },
+        };
+      },
+    },
+    async downloadTelegramFile() {},
+  });
+
+  await commands.get("login")({
+    from: { id: 123 },
+    chat: { id: 123, type: "private" },
+    message: { message_id: 456 },
+    async reply(text, options) {
+      replies.push({ text, options });
+      return { message_id: 457 };
+    },
+  });
+
+  assert.equal(replies.length, 1);
+  const entity = replies[0].options.entities[0];
+  assert.equal(entity.type, "pre");
+  assert.equal(replies[0].text.slice(entity.offset, entity.offset + entity.length), "ABCD-EFGH");
+  assert.equal(replies[0].options.reply_markup.inline_keyboard[0][0].url, "https://example.com/device");
+  assert.equal(edits[0].messageId, 457);
+});
+
 test("renders estimated sticker generation progress without reaching 100% early", () => {
   assert.equal(
     generationProgressText(0, 80_000),
