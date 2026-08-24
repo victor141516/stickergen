@@ -42,6 +42,7 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - Allow multiple concurrent generations from the same Telegram user.
 - Coalesce overlapping credential refreshes per user so concurrent generations do not rotate the same refresh token twice.
 - In regular chats, reply with the generated sticker to the user's original request when its message ID is available.
+- Send the WhatsApp PNG export only for requests made in the bot's private Telegram conversation; never send it for group, inline, or Mini App generations.
 - Make every newly sent regular-chat bot message a Telegram reply when a triggering or source message ID is available.
 - Persist the bounded reply graph without image bytes, reconstruct the available branch before each regular or draft-based generation, and pass earlier user/assistant turns before the current Codex input.
 - Treat unavailable or expired historical Telegram images as optional context: log a safe warning and continue the single generation without them.

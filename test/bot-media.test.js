@@ -171,9 +171,7 @@ test("automatically starts a chosen inline result and reveals the send button on
     readyEdit.options.reply_markup.inline_keyboard[0][0].switch_inline_query_current_chat,
     `ready:${jobId}`,
   );
-  assert.equal(whatsappExports.length, 1);
-  assert.equal(whatsappExports[0].chatId, "123");
-  assert.match(whatsappExports[0].options.caption, /WhatsApp export/);
+  assert.equal(whatsappExports.length, 0);
 
   await handlers.get("inline_query")({
     from: { id: 123 },
@@ -427,6 +425,7 @@ test("keeps presets out of groups and consumes them once for private text or exi
   const handlers = new Map();
   const generatedRequests = [];
   const sentStickers = [];
+  const whatsappExports = [];
   const replyTexts = [];
   const user = {
     sessionToken: "encrypted-session",
@@ -438,7 +437,11 @@ test("keeps presets out of groups and consumes them once for private text or exi
     async deleteMessage() {},
     async sendSticker(chatId, sticker, options) {
       sentStickers.push({ chatId, sticker, options });
-      return {};
+      return { message_id: 700 + sentStickers.length };
+    },
+    async sendDocument(chatId, document, options) {
+      whatsappExports.push({ chatId, document, options });
+      return { message_id: 750 + whatsappExports.length };
     },
   };
   const bot = {
@@ -484,6 +487,9 @@ test("keeps presets out of groups and consumes them once for private text or exi
     async convertToSticker() {
       return Buffer.from("webp");
     },
+    async convertToWhatsAppExport() {
+      return Buffer.from("png");
+    },
     async getTransparencyStats() {
       return { hasAlpha: false, transparentPixels: 0 };
     },
@@ -508,6 +514,7 @@ test("keeps presets out of groups and consumes them once for private text or exi
   await textHandler(context(100, "@stickergen_bot A green dragon", "group"));
   await delay(10);
   assert.equal(user.stylePresetId, "1950s-newspaper");
+  assert.equal(whatsappExports.length, 0);
   await textHandler(context(101, "A red robot in watercolor"));
   await delay(10);
   await textHandler(context(102, "A blue cat"));
@@ -533,6 +540,7 @@ test("keeps presets out of groups and consumes them once for private text or exi
   assert.match(generatedRequests[1].prompt, /ignore the preset/i);
   assert.equal(generatedRequests[2].prompt, "A blue cat");
   assert.match(generatedRequests[3].prompt, /Recreate this existing sticker/);
+  assert.equal(whatsappExports.length, 3);
   assert.match(generatedRequests[3].prompt, /Advance Wars on Game Boy Advance/);
   assert.equal(
     generatedRequests[3].sourceDataUrl,

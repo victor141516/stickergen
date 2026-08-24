@@ -35,7 +35,7 @@ StickerGen links each Telegram user to their own OpenAI/Codex session, generates
 | 🧠 | Preserve the reply-chain context when refining generated stickers |
 | 🔐 | Keep a separate encrypted Codex session for every user |
 | 🧵 | Run multiple sticker generations concurrently |
-| 🟢 | Receive a transparent PNG beside every sticker for WhatsApp's built-in sticker creator |
+| 🟢 | Receive an alpha-preserving PNG for WhatsApp when generating in the private bot chat |
 | 🐳 | Deploy as a single Docker service behind an HTTPS webhook |
 
 ## 💬 How to use it
@@ -98,7 +98,7 @@ In regular chats, every new bot message replies to the triggering message whenev
 
 While a request is running, the bot updates a ten-block progress bar and an approximate ETA in the temporary status message. The initial 80-second estimate comes from observed production timings and can be configured with `GENERATION_ETA_MS`. Progress stops at 90% until Codex finishes because the upstream API does not report real completion percentages. In regular chats, Telegram also displays the **choosing a sticker** action until the job completes or fails.
 
-Every generated sticker is followed by a lossless PNG export that preserves the generated alpha channel. Download it, then use **Stickers → Create** in WhatsApp and select the PNG. WhatsApp's official third-party pack API requires 3–30 stickers, so StickerGen deliberately uses WhatsApp's built-in one-at-a-time creator instead of fabricating a pack or requiring a separate sticker-maker app. Inline generations deliver this export to the user's private StickerGen chat because the bot may not belong to the destination chat.
+Stickers requested in StickerGen's private Telegram conversation are followed by a lossless PNG export that preserves the generated alpha channel. Download it, then use **Stickers → Create** in WhatsApp and select the PNG. WhatsApp's official third-party pack API requires 3–30 stickers, so StickerGen deliberately uses WhatsApp's built-in one-at-a-time creator instead of fabricating a pack or requiring a separate sticker-maker app. Group, inline, and Mini App generations do not send the extra export message.
 
 ## 🔐 Sessions and privacy
 

@@ -56,9 +56,6 @@ async function startService(overrides = {}) {
     async convertToSticker() {
       return Buffer.from("ready-webp");
     },
-    async convertToWhatsAppExport() {
-      return Buffer.from("whatsapp-png");
-    },
     async getTransparencyStats() {
       return { hasTransparentPixels: true };
     },
@@ -152,10 +149,7 @@ test("authenticates a generation, streams completion, and sends the sticker", as
 
     assert.equal(running.sentStickers.length, 1);
     assert.equal(running.sentStickers[0].chatId, "123");
-    assert.equal(running.sentDocuments.length, 1);
-    assert.equal(running.sentDocuments[0].chatId, "123");
-    assert.equal(running.sentDocuments[0].options.reply_parameters.message_id, 777);
-    assert.match(running.sentDocuments[0].options.caption, /WhatsApp export/);
+    assert.equal(running.sentDocuments.length, 0);
     assert.match(running.generatedRequests[0].prompt, /A red robot in watercolor/);
     assert.match(running.generatedRequests[0].prompt, /1950s newspaper cartoon/i);
     assert.equal(running.generatedRequests[0].sourceDataUrl, "data:image/png;base64,c291cmNl");

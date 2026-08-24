@@ -6,7 +6,6 @@ import { generateStickerImage } from "./codex.js";
 import {
   stickerDataUrl,
   toStickerWebp,
-  toWhatsAppExportPng,
   transparencyStats,
 } from "./stickers.js";
 import { getStylePreset, listStylePresets, promptWithStylePreset } from "./styles.js";
@@ -19,8 +18,6 @@ const JOB_LIMIT = 200;
 const PROGRESS_INTERVAL_MS = 2_000;
 const SSE_HEARTBEAT_MS = 15_000;
 const DEFAULT_GENERATION_ETA_MS = 80_000;
-const WHATSAPP_EXPORT_CAPTION =
-  "WhatsApp export: download this PNG, then open WhatsApp → Stickers → Create and select it.";
 
 const DEFAULT_SOURCE_PROMPT =
   "Turn the main subject of this source image into a faithful and recognizable Telegram sticker. Preserve important features, render it in the requested style, and use genuine background transparency unless the user asks for a scene or opaque background.";
@@ -127,7 +124,6 @@ export function createMiniAppService({
   webRoot,
   generateImage = generateStickerImage,
   convertToSticker = toStickerWebp,
-  convertToWhatsAppExport = toWhatsAppExportPng,
   getTransparencyStats = transparencyStats,
   sourceToDataUrl = stickerDataUrl,
   estimatedGenerationMs = DEFAULT_GENERATION_ETA_MS,
@@ -259,30 +255,6 @@ export function createMiniAppService({
         new InputFile(webp, "stickergen-miniapp.webp"),
         replyParameters,
       );
-      try {
-        const whatsappPng = await convertToWhatsAppExport(rawImage);
-        await bot.api.sendDocument(
-          draft?.chatId || telegramUser.id,
-          new InputFile(whatsappPng, "stickergen-whatsapp.png"),
-          {
-            caption: WHATSAPP_EXPORT_CAPTION,
-            ...sentMessage?.message_id
-              ? { reply_parameters: { message_id: sentMessage.message_id, allow_sending_without_reply: true } }
-              : {},
-          },
-        );
-        logger.info("whatsapp_export_sent", JSON.stringify({
-          generationId,
-          jobId: job.id,
-          exportBytes: whatsappPng.length,
-        }));
-      } catch (error) {
-        logger.error("whatsapp_export_failed", JSON.stringify({
-          generationId,
-          jobId: job.id,
-          error: error?.message || "unknown error",
-        }));
-      }
       if (conversationStore && sentMessage?.message_id) {
         try {
           await conversationStore.rememberOutgoing({

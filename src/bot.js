@@ -496,6 +496,7 @@ export function registerBotHandlers({
     conversation,
     stopChatAction,
     progress,
+    includeWhatsAppExport = false,
   }) {
     const generationId = randomUUID();
     try {
@@ -532,12 +533,14 @@ export function registerBotHandlers({
       const sentSticker = await sendSticker(chatId, new InputFile(webp, "sticker.webp"), {
         ...replyOptions(replyToMessageId),
       }, prompt);
-      await sendWhatsAppExport(
-        chatId,
-        rawImage,
-        sentSticker?.message_id || replyToMessageId,
-        { generationId },
-      );
+      if (includeWhatsAppExport) {
+        await sendWhatsAppExport(
+          chatId,
+          rawImage,
+          sentSticker?.message_id || replyToMessageId,
+          { generationId },
+        );
+      }
       logger.info("sticker_generation_sent", JSON.stringify({
         generationId,
         stickerBytes: webp.length,
@@ -621,7 +624,6 @@ export function registerBotHandlers({
         jobId,
         stickerBytes: webp.length,
       }));
-      await sendWhatsAppExport(job.userId, rawImage, null, { generationId, jobId });
     } catch (error) {
       const message = error?.message || "unknown error";
       job.status = "failed";
@@ -730,6 +732,7 @@ export function registerBotHandlers({
       conversation,
       stopChatAction,
       progress,
+      includeWhatsAppExport: ctx.chat.type === "private",
     }).catch((error) => logger.error("detached_sticker_generation_failed", error));
   }
 
