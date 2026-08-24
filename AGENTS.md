@@ -42,6 +42,7 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - Keep `choose_sticker` refreshed while a normal chat generation is pending and stop it on every completion or failure path.
 - Keep each request's progress message updating independently, cap estimated progress at 90% until completion, and stop its timer on every success or failure path.
 - Keep style presets optional and one-use. Apply them only to private-chat requests, and always give an explicit style in the current user prompt priority over the preset.
+- Accept a static sticker sent directly in private chat as a source image so a selected preset can restyle it. Do not intercept standalone stickers in groups.
 
 ## Style
 

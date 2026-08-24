@@ -20,8 +20,11 @@ const HELP = [
   "You can also reply to an image with @bot_username <instructions>.",
 ].join("\n");
 
-const DEFAULT_PHOTO_PROMPT =
-  "Turn the main subject of this photo into a faithful and recognizable Telegram sticker. Remove the background, preserve important features, and use a clean, expressive outline.";
+const DEFAULT_SOURCE_IMAGE_PROMPT =
+  "Turn the main subject of this source image into a faithful and recognizable Telegram sticker. Remove the background, preserve important features, and use a clean, expressive outline.";
+
+const DEFAULT_STICKER_RESTYLE_PROMPT =
+  "Recreate this existing sticker as a polished new variation. Preserve its subject, pose, expression, composition, and identifying details while rendering it in the requested style.";
 
 const INLINE_JOB_TTL_MS = 60 * 60 * 1000;
 const DEFAULT_GENERATION_ETA_MS = 80_000;
@@ -634,7 +637,7 @@ export function registerBotHandlers({
           `Preset: ${selectedPreset.name}`,
           selectedPreset.description,
           "",
-          "It applies to your next private-chat sticker only. Now send a prompt, photo, or edit. Your prompt's own style always takes priority.",
+          "It applies to your next private-chat sticker only. Now send a prompt, photo, existing sticker, or edit. Your prompt's own style always takes priority.",
         ].join("\n")
       : styleSelectorText(null);
     await ctx.editMessageText(text, {
@@ -729,7 +732,7 @@ export function registerBotHandlers({
 
   bot.command("sticker", async (ctx) => {
     const sourceFileId = sourceImageFileId(ctx, { includeCurrent: true });
-    const prompt = ctx.match?.trim() || (sourceFileId ? DEFAULT_PHOTO_PROMPT : "");
+    const prompt = ctx.match?.trim() || (sourceFileId ? DEFAULT_SOURCE_IMAGE_PROMPT : "");
     await createSticker(ctx, prompt, sourceFileId);
   });
 
@@ -750,7 +753,7 @@ export function registerBotHandlers({
     const mentionedPrompt = promptFromBotMention(text, ctx.me.username);
     if (!isPrivate && mentionedPrompt === null) return;
     const prompt = mentionedPrompt ?? text;
-    await createSticker(ctx, prompt || (sourceFileId ? DEFAULT_PHOTO_PROMPT : ""), sourceFileId);
+    await createSticker(ctx, prompt || (sourceFileId ? DEFAULT_SOURCE_IMAGE_PROMPT : ""), sourceFileId);
   });
 
   bot.on(["message:photo", "message:document"], async (ctx) => {
@@ -761,7 +764,16 @@ export function registerBotHandlers({
     const isPrivate = ctx.chat.type === "private";
     const mentionedPrompt = promptFromBotMention(caption, ctx.me.username);
     if (!isPrivate && mentionedPrompt === null) return;
-    await createSticker(ctx, mentionedPrompt || caption || DEFAULT_PHOTO_PROMPT, sourceFileId);
+    await createSticker(ctx, mentionedPrompt || caption || DEFAULT_SOURCE_IMAGE_PROMPT, sourceFileId);
+  });
+
+  bot.on("message:sticker", async (ctx) => {
+    if (ctx.chat.type !== "private") return;
+    if (ctx.message.sticker.is_animated || ctx.message.sticker.is_video) {
+      await ctx.reply("I can currently restyle static stickers only. Send a static sticker, or use a still image from this one.");
+      return;
+    }
+    await createSticker(ctx, DEFAULT_STICKER_RESTYLE_PROMPT, ctx.message.sticker.file_id);
   });
 
   return { pendingLogins, inlineJobs };

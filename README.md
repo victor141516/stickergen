@@ -45,6 +45,7 @@ Open [the bot](https://t.me/stickergen_miramacho_bot), run `/login`, and complet
 | Create conversationally | Send `a waving astronaut raccoon` in the private chat |
 | Create from a photo | Send a photo with the caption `as an Advance Wars character` |
 | Edit an image | Reply with `/edit add red sunglasses` |
+| Restyle an existing sticker | Choose a preset, then send the static sticker in the private chat |
 | Choose a one-use style | Use `/style` or tap **Choose style** |
 | Invoke it in a group | Reply to an image with `@stickergen_miramacho_bot make it pixel art` |
 | Check the linked account | `/whoami` |
@@ -62,7 +63,7 @@ Choose **Generate sticker**, tap the placeholder button, and wait for the result
 
 ### 🎨 Style presets
 
-In the private chat, use `/style` or the **Choose style** button to select a preset for the next sticker. The preset is consumed by that request and then automatically resets to **No preset**. A style explicitly written in the new prompt always takes priority over the selected preset, so free-form prompts remain fully supported.
+In the private chat, use `/style` or the **Choose style** button to select a preset for the next sticker. Then send a text prompt, photo, or existing static sticker. The preset is consumed by that request and then automatically resets to **No preset**. A style explicitly written in the new prompt always takes priority over the selected preset, so free-form prompts remain fully supported.
 
 The six initial presets range from a modern sticker treatment to classic print, animation, engraving, and Game Boy Advance-era artwork. Their order, button labels, descriptions, and prompt instructions all live in [`src/styles.json`](src/styles.json), making the catalog easy to revise without changing the selector code. Presets intentionally apply only to private-chat requests; groups and inline mode continue to use the style written directly in each prompt.
 

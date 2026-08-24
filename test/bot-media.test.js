@@ -241,10 +241,11 @@ test("keeps the choosing-sticker action active until stopped", async () => {
   });
 });
 
-test("keeps presets out of groups, generates from private text, and consumes a preset once", async () => {
+test("keeps presets out of groups and consumes them once for private text or existing stickers", async () => {
   const handlers = new Map();
-  const generatedPrompts = [];
+  const generatedRequests = [];
   const sentStickers = [];
+  const replyTexts = [];
   const user = {
     sessionToken: "encrypted-session",
     stylePresetId: "1950s-newspaper",
@@ -288,11 +289,14 @@ test("keeps presets out of groups, generates from private text, and consumes a p
         return {};
       },
     },
-    async downloadTelegramFile() {
-      throw new Error("No source image expected");
+    async downloadTelegramFile(fileId) {
+      return Buffer.from(fileId);
     },
-    async generateImage({ prompt }) {
-      generatedPrompts.push(prompt);
+    async sourceToDataUrl(source) {
+      return `data:image/webp;base64,${source.toString("base64")}`;
+    },
+    async generateImage({ prompt, sourceDataUrl }) {
+      generatedRequests.push({ prompt, sourceDataUrl });
       return Buffer.from("generated-image");
     },
     async convertToSticker() {
@@ -305,13 +309,14 @@ test("keeps presets out of groups, generates from private text, and consumes a p
   });
 
   let statusId = 800;
-  const context = (messageId, text, chatType = "private") => ({
+  const context = (messageId, text, chatType = "private", message = null) => ({
     api,
     from: { id: 123 },
     chat: { id: 456, type: chatType },
     me: { username: "stickergen_bot" },
-    message: { message_id: messageId, text },
-    async reply() {
+    message: message || { message_id: messageId, text },
+    async reply(replyText) {
+      replyTexts.push(replyText);
       statusId += 1;
       return { message_id: statusId };
     },
@@ -326,14 +331,35 @@ test("keeps presets out of groups, generates from private text, and consumes a p
   await textHandler(context(102, "A blue cat"));
   await delay(10);
 
-  assert.equal(generatedPrompts.length, 3);
-  assert.equal(generatedPrompts[0], "A green dragon");
-  assert.match(generatedPrompts[1], /A red robot in watercolor/);
-  assert.match(generatedPrompts[1], /1950s newspaper cartoon/i);
-  assert.match(generatedPrompts[1], /ignore the preset/i);
-  assert.equal(generatedPrompts[2], "A blue cat");
+  user.stylePresetId = "gba-tactics";
+  const stickerHandler = handlers.get("message:sticker");
+  await stickerHandler(context(103, "", "private", {
+    message_id: 103,
+    sticker: { file_id: "animated-sticker", is_animated: true, is_video: false },
+  }));
+  assert.equal(user.stylePresetId, "gba-tactics");
+  await stickerHandler(context(104, "", "private", {
+    message_id: 104,
+    sticker: { file_id: "static-sticker", is_animated: false, is_video: false },
+  }));
+  await delay(10);
+
+  assert.equal(generatedRequests.length, 4);
+  assert.equal(generatedRequests[0].prompt, "A green dragon");
+  assert.match(generatedRequests[1].prompt, /A red robot in watercolor/);
+  assert.match(generatedRequests[1].prompt, /1950s newspaper cartoon/i);
+  assert.match(generatedRequests[1].prompt, /ignore the preset/i);
+  assert.equal(generatedRequests[2].prompt, "A blue cat");
+  assert.match(generatedRequests[3].prompt, /Recreate this existing sticker/);
+  assert.match(generatedRequests[3].prompt, /Advance Wars on Game Boy Advance/);
+  assert.equal(
+    generatedRequests[3].sourceDataUrl,
+    `data:image/webp;base64,${Buffer.from("static-sticker").toString("base64")}`,
+  );
+  assert.equal(user.stylePresetId, undefined);
+  assert.ok(replyTexts.some((text) => text.includes("static stickers only")));
   assert.deepEqual(
     sentStickers.map(({ options }) => options.reply_parameters.message_id),
-    [100, 101, 102],
+    [100, 101, 102, 104],
   );
 });
