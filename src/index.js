@@ -115,7 +115,7 @@ server.listen(port, "0.0.0.0", () => console.log(`Health endpoint listening on $
 
 await bot.api.setWebhook(`${publicBaseUrl}${webhookPath}`, {
   secret_token: webhookSecret,
-  allowed_updates: ["message", "inline_query", "callback_query"],
+  allowed_updates: ["message", "inline_query", "chosen_inline_result", "callback_query"],
   max_connections: 40,
 });
 console.log(`Telegram webhook configured at ${publicBaseUrl}${webhookPath}`);

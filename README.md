@@ -61,7 +61,9 @@ Type this in any chat, even when StickerGen is not a member of the group:
 @stickergen_miramacho_bot an octopus programmer drinking coffee
 ```
 
-Choose **Generate sticker**, tap the placeholder button, and wait for the result. Telegram does not provide the replied-to message in an inline query, so editing an image already posted in a chat requires the bot to be present and invoked through a mention or `/edit`.
+Choose **Generate sticker** and the selected inline message starts generating automatically. Its ETA bar updates in place; only when the sticker is ready does a **Send sticker** button appear. That button opens a one-result inline picker containing the finished native sticker. Telegram requires the final sticker selection because inline messages cannot be edited into native stickers. Telegram does not provide the replied-to message in an inline query, so editing an image already posted in a chat requires the bot to be present and invoked through a mention or `/edit`.
+
+Automatic inline starts require inline feedback to be enabled at 100% for the bot in BotFather. A short-lived **Starting…** callback remains attached to the initial result so Telegram supplies its editable inline message ID and so a delayed feedback update still has a manual fallback.
 
 ### 🎨 Style presets
 

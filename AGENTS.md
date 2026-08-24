@@ -46,6 +46,7 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - Persist the bounded reply graph without image bytes, reconstruct the available branch before each regular or draft-based generation, and pass earlier user/assistant turns before the current Codex input.
 - Treat unavailable or expired historical Telegram images as optional context: log a safe warning and continue the single generation without them.
 - Inline queries do not contain the replied-to Telegram message. Do not claim inline editing can access that image when the bot is absent from the chat.
+- Start inline generation from `chosen_inline_result`, keep the initial callback as a race-safe fallback, and reveal the final `switch_inline_query_current_chat` button only after the native sticker is cached.
 - Group free-text handling must require a mention so the bot does not intercept unrelated conversation.
 - Keep `choose_sticker` refreshed while a normal chat generation is pending and stop it on every completion or failure path.
 - Keep each request's progress message updating independently, cap estimated progress at 90% until completion, and stop its timer on every success or failure path.

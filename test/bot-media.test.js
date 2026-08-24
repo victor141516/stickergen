@@ -48,12 +48,140 @@ test("builds an actionable inline placeholder and a cached sticker result", () =
   const jobId = "12345678-1234-1234-1234-123456789abc";
   const placeholder = inlinePlaceholderResult(jobId, "an astronaut cat");
   assert.equal(placeholder.type, "article");
+  assert.match(placeholder.input_message_content.message_text, /0% · ETA/);
+  assert.match(placeholder.input_message_content.message_text, /an astronaut cat/);
+  assert.equal(placeholder.reply_markup.inline_keyboard[0][0].text, "✨ Starting…");
   assert.equal(placeholder.reply_markup.inline_keyboard[0][0].callback_data, `inline:${jobId}`);
   assert.deepEqual(inlineCachedStickerResult(jobId, "telegram-file-id"), {
     type: "sticker",
     id: `ready-${jobId}`,
     sticker_file_id: "telegram-file-id",
   });
+});
+
+test("automatically starts a chosen inline result and reveals the send button only when ready", async () => {
+  const handlers = new Map();
+  const callbackHandlers = [];
+  const inlineAnswers = [];
+  const edits = [];
+  const generated = [];
+  let finishGeneration;
+  const api = {
+    async editMessageTextInline(inlineMessageId, text, options) {
+      edits.push({ inlineMessageId, text, options });
+      return true;
+    },
+    async sendSticker() {
+      return { message_id: 700, sticker: { file_id: "ready-sticker-file" } };
+    },
+    async deleteMessage() {},
+  };
+  const bot = {
+    api,
+    command() {},
+    callbackQuery(trigger, handler) {
+      callbackHandlers.push({ trigger, handler });
+    },
+    on(event, handler) {
+      handlers.set(Array.isArray(event) ? event.join(",") : event, handler);
+    },
+  };
+
+  registerBotHandlers({
+    bot,
+    userStore: {
+      get() {
+        return { sessionToken: "encrypted-session" };
+      },
+    },
+    authService: {
+      async credentials() {
+        return { oauth: { accessToken: "test-token" } };
+      },
+      publicIdentity() {
+        return {};
+      },
+    },
+    async downloadTelegramFile() {},
+    async generateImage(request) {
+      generated.push(request);
+      return new Promise((resolve) => {
+        finishGeneration = () => resolve(Buffer.from("generated"));
+      });
+    },
+    async convertToSticker() {
+      return Buffer.from("webp");
+    },
+    async getTransparencyStats() {
+      return { hasAlpha: false, transparentPixels: 0 };
+    },
+    logger: { info() {}, warn() {}, error() {} },
+  });
+
+  await handlers.get("inline_query")({
+    from: { id: 123 },
+    inlineQuery: { query: "a moonwalking corgi" },
+    async answerInlineQuery(results, options) {
+      inlineAnswers.push({ results, options });
+    },
+  });
+  const jobId = inlineAnswers[0].results[0].id;
+  assert.match(inlineAnswers[0].results[0].input_message_content.message_text, /0% · ETA/);
+
+  await handlers.get("chosen_inline_result")({
+    from: { id: 123 },
+    chosenInlineResult: {
+      result_id: jobId,
+      inline_message_id: "inline-message-1",
+      query: "a moonwalking corgi",
+    },
+  });
+  await delay(0);
+
+  assert.equal(generated.length, 1);
+  assert.equal(generated[0].prompt, "a moonwalking corgi");
+  assert.deepEqual(edits[0].options, { reply_markup: { inline_keyboard: [] } });
+
+  const inlineCallback = callbackHandlers.find(({ trigger }) => String(trigger).includes("inline:"));
+  const callbackAnswers = [];
+  await inlineCallback.handler({
+    from: { id: 123 },
+    match: [null, jobId],
+    callbackQuery: { inline_message_id: "inline-message-1" },
+    async answerCallbackQuery(answer) {
+      callbackAnswers.push(answer);
+    },
+  });
+  assert.equal(generated.length, 1);
+  assert.match(callbackAnswers[0].text, /already being generated/i);
+
+  finishGeneration();
+  await delay(20);
+  const readyEdit = edits.find(({ text }) => text.includes("Tap below"));
+  assert.equal(readyEdit.options.reply_markup.inline_keyboard[0][0].text, "Send sticker");
+  assert.equal(
+    readyEdit.options.reply_markup.inline_keyboard[0][0].switch_inline_query_current_chat,
+    `ready:${jobId}`,
+  );
+
+  await handlers.get("inline_query")({
+    from: { id: 123 },
+    inlineQuery: { query: `ready:${jobId}` },
+    async answerInlineQuery(results) {
+      inlineAnswers.push({ results });
+    },
+  });
+  assert.deepEqual(inlineAnswers.at(-1).results, [inlineCachedStickerResult(jobId, "ready-sticker-file")]);
+
+  await handlers.get("chosen_inline_result")({
+    from: { id: 123 },
+    chosenInlineResult: {
+      result_id: `ready-${jobId}`,
+      query: `ready:${jobId}`,
+    },
+  });
+  assert.equal(edits.at(-1).text, "✅ Sticker sent.");
+  assert.deepEqual(edits.at(-1).options, { reply_markup: { inline_keyboard: [] } });
 });
 
 test("builds reply parameters for the original user message", () => {

@@ -148,18 +148,18 @@ export function promptFromBotMention(text, botUsername) {
     .trim();
 }
 
-export function inlinePlaceholderResult(jobId, prompt) {
+export function inlinePlaceholderResult(jobId, prompt, estimatedMs = DEFAULT_GENERATION_ETA_MS) {
   return {
     type: "article",
     id: jobId,
     title: "Generate sticker",
     description: prompt.slice(0, 100),
     input_message_content: {
-      message_text: `🎨 ${prompt}\n\nTap “Generate sticker” to begin.`,
+      message_text: `${generationProgressText(0, estimatedMs)}\n\n${prompt}`,
     },
     reply_markup: {
       inline_keyboard: [[{
-        text: "Generate sticker",
+        text: "✨ Starting…",
         callback_data: `inline:${jobId}`,
       }]],
     },
@@ -568,26 +568,17 @@ export function registerBotHandlers({
       const readyQuery = `ready:${jobId}`;
       const replyMarkup = {
         inline_keyboard: [[{
-          text: "Send as sticker",
+          text: "Send sticker",
           switch_inline_query_current_chat: readyQuery,
         }]],
       };
 
       await progress?.complete();
-      try {
-        await bot.api.editMessageMediaInline(inlineMessageId, {
-          type: "document",
-          media: stickerFileId,
-          caption: "Sticker generated. Tap below to send it as a native sticker.",
-        }, { reply_markup: replyMarkup });
-      } catch (mediaError) {
-        logger.warn("inline sticker could not replace placeholder as media", mediaError?.message || mediaError);
-        await bot.api.editMessageTextInline(
-          inlineMessageId,
-          "✅ Sticker generated. Tap below to insert it as a native sticker.",
-          { reply_markup: replyMarkup },
-        );
-      }
+      await bot.api.editMessageTextInline(
+        inlineMessageId,
+        "✅ Sticker ready. Tap below, then choose the sticker to insert it here.",
+        { reply_markup: replyMarkup },
+      );
       logger.info("inline_sticker_generation_ready", JSON.stringify({
         generationId,
         jobId,
@@ -604,11 +595,47 @@ export function registerBotHandlers({
       }));
       await progress?.stop();
       try {
-        await bot.api.editMessageTextInline(inlineMessageId, `I could not generate the sticker: ${message}`);
+        await bot.api.editMessageTextInline(
+          inlineMessageId,
+          `I could not generate the sticker: ${message}`,
+          { reply_markup: { inline_keyboard: [] } },
+        );
       } catch {}
     } finally {
       await progress?.stop();
     }
+  }
+
+  async function startInlineStickerJob({ jobId, inlineMessageId, requesterId }) {
+    pruneInlineJobs();
+    const job = inlineJobs.get(jobId);
+    if (!job || !inlineMessageId) return "expired";
+    if (job.userId !== requesterId) return "forbidden";
+    if (job.status === "running") return "running";
+    if (job.status === "ready") return "ready";
+    if (job.status !== "pending") return "expired";
+
+    job.status = "running";
+    job.inlineMessageId = inlineMessageId;
+    try {
+      await bot.api.editMessageTextInline(
+        inlineMessageId,
+        generationProgressText(0, estimatedGenerationMs),
+        { reply_markup: { inline_keyboard: [] } },
+      );
+    } catch (error) {
+      job.status = "pending";
+      delete job.inlineMessageId;
+      throw error;
+    }
+    const progress = startGenerationProgress({
+      estimatedMs: estimatedGenerationMs,
+      logger,
+      update: (text) => bot.api.editMessageTextInline(inlineMessageId, text),
+    });
+    void processInlineStickerJob({ jobId, inlineMessageId, progress })
+      .catch((error) => logger.error("detached_inline_sticker_generation_failed", error));
+    return "started";
   }
 
   async function createSticker(ctx, prompt, sourceFileId = null) {
@@ -882,48 +909,80 @@ export function registerBotHandlers({
       status: "pending",
       expiresAt: Date.now() + INLINE_JOB_TTL_MS,
     });
-    await ctx.answerInlineQuery([inlinePlaceholderResult(jobId, query)], {
+    await ctx.answerInlineQuery([inlinePlaceholderResult(jobId, query, estimatedGenerationMs)], {
       cache_time: 0,
       is_personal: true,
     });
   });
 
-  bot.callbackQuery(/^inline:([0-9a-f-]{36})$/, async (ctx) => {
-    pruneInlineJobs();
-    const jobId = ctx.match[1];
-    const job = inlineJobs.get(jobId);
+  bot.on("chosen_inline_result", async (ctx) => {
+    const chosen = ctx.chosenInlineResult;
     const id = userId(ctx);
-    const inlineMessageId = ctx.callbackQuery.inline_message_id;
-    if (!job || !inlineMessageId) {
-      await ctx.answerCallbackQuery({ text: "This request has expired. Open inline mode again." });
-      return;
-    }
-    if (job.userId !== id) {
-      await ctx.answerCallbackQuery({ text: "Only the person who created this placeholder can generate the sticker.", show_alert: true });
-      return;
-    }
-    if (job.status === "running") {
-      await ctx.answerCallbackQuery({ text: "This sticker is already being generated." });
-      return;
-    }
-    if (job.status === "ready") {
-      await ctx.answerCallbackQuery({ text: "The sticker is already ready." });
+    if (!chosen || !id) return;
+
+    if (chosen.result_id.startsWith("ready-")) {
+      const jobId = chosen.result_id.slice("ready-".length);
+      const job = inlineJobs.get(jobId);
+      if (job?.userId !== id || job.status !== "ready" || !job.inlineMessageId) return;
+      job.status = "sent";
+      job.expiresAt = Date.now() + INLINE_JOB_TTL_MS;
+      try {
+        await bot.api.editMessageTextInline(
+          job.inlineMessageId,
+          "✅ Sticker sent.",
+          { reply_markup: { inline_keyboard: [] } },
+        );
+      } catch (error) {
+        logger.warn("inline_sticker_sent_status_update_failed", error?.message || error);
+      }
       return;
     }
 
-    job.status = "running";
+    if (!/^[0-9a-f-]{36}$/.test(chosen.result_id) || !chosen.inline_message_id) return;
+    try {
+      await startInlineStickerJob({
+        jobId: chosen.result_id,
+        inlineMessageId: chosen.inline_message_id,
+        requesterId: id,
+      });
+    } catch (error) {
+      logger.error("chosen_inline_sticker_start_failed", error?.message || error);
+    }
+  });
+
+  bot.callbackQuery(/^inline:([0-9a-f-]{36})$/, async (ctx) => {
+    const jobId = ctx.match[1];
+    const id = userId(ctx);
+    const inlineMessageId = ctx.callbackQuery.inline_message_id;
+    let status;
+    try {
+      status = await startInlineStickerJob({
+        jobId,
+        inlineMessageId,
+        requesterId: id,
+      });
+    } catch (error) {
+      logger.error("inline_sticker_fallback_start_failed", error?.message || error);
+      await ctx.answerCallbackQuery({ text: "I could not start this sticker. Try the inline request again.", show_alert: true });
+      return;
+    }
+    if (status === "expired") {
+      await ctx.answerCallbackQuery({ text: "This request has expired. Open inline mode again." });
+      return;
+    }
+    if (status === "forbidden") {
+      await ctx.answerCallbackQuery({ text: "Only the person who created this placeholder can generate the sticker.", show_alert: true });
+      return;
+    }
+    if (status === "running") {
+      await ctx.answerCallbackQuery({ text: "This sticker is already being generated." });
+      return;
+    }
+    if (status === "ready") {
+      await ctx.answerCallbackQuery({ text: "The sticker is already ready." });
+      return;
+    }
     await ctx.answerCallbackQuery({ text: "Generating sticker…" });
-    await bot.api.editMessageTextInline(
-      inlineMessageId,
-      generationProgressText(0, estimatedGenerationMs),
-    );
-    const progress = startGenerationProgress({
-      estimatedMs: estimatedGenerationMs,
-      logger,
-      update: (text) => bot.api.editMessageTextInline(inlineMessageId, text),
-    });
-    void processInlineStickerJob({ jobId, inlineMessageId, progress })
-      .catch((error) => logger.error("detached_inline_sticker_generation_failed", error));
   });
 
   bot.command("sticker", async (ctx) => {
