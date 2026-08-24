@@ -6,6 +6,7 @@ COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev --ignore-scripts=false
 
 COPY src ./src
+COPY web ./web
 
 RUN mkdir -p /app/data \
   && chown -R node:node /app

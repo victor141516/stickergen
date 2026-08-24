@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#111318">
+    <meta name="description" content="Create and restyle Telegram stickers with StickerGen.">
+    <title>StickerGen</title>
+    <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
+    <link rel="stylesheet" href="/app/styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="brand-mark" aria-hidden="true">
+          <span>✦</span>
+        </div>
+        <div class="brand-copy">
+          <p class="eyebrow">Sticker studio</p>
+          <h1>StickerGen</h1>
+        </div>
+        <div id="connection-pill" class="connection-pill" aria-live="polite">
+          <span class="connection-dot"></span>
+          <span id="connection-label">Connecting</span>
+        </div>
+      </header>
+
+      <section class="hero-copy" aria-labelledby="hero-title">
+        <h2 id="hero-title">Make the sticker in your head.</h2>
+        <p>Describe anything, choose a look if you want one, and let your prompt have the final word.</p>
+      </section>
+
+      <form id="generator-form" novalidate>
+        <section class="panel source-panel" aria-labelledby="source-title">
+          <div class="section-heading">
+            <div>
+              <p class="step-label">01 · Source</p>
+              <h3 id="source-title">Start with an image</h3>
+            </div>
+            <span class="optional-label">Optional</span>
+          </div>
+
+          <label id="source-dropzone" class="source-dropzone" for="source-input">
+            <input id="source-input" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+            <span class="upload-icon" aria-hidden="true">↑</span>
+            <span class="upload-copy">
+              <strong id="source-title-text">Add a photo or static sticker</strong>
+              <small id="source-help-text">PNG, JPG or WebP · up to 10 MB</small>
+            </span>
+            <span class="upload-action">Choose</span>
+          </label>
+
+          <div id="source-preview" class="source-preview" hidden>
+            <div class="source-thumb-wrap">
+              <img id="source-thumb" alt="Selected source image">
+            </div>
+            <div class="source-details">
+              <strong id="source-name">Source image</strong>
+              <span id="source-meta">Ready to restyle</span>
+            </div>
+            <button id="remove-source" class="icon-button" type="button" aria-label="Remove source image">×</button>
+          </div>
+        </section>
+
+        <section class="panel prompt-panel" aria-labelledby="prompt-title">
+          <div class="section-heading">
+            <div>
+              <p class="step-label">02 · Idea</p>
+              <h3 id="prompt-title">Describe your sticker</h3>
+            </div>
+            <span id="prompt-counter" class="prompt-counter">0 / 2000</span>
+          </div>
+          <label class="sr-only" for="prompt-input">Sticker description and style</label>
+          <textarea
+            id="prompt-input"
+            maxlength="2000"
+            rows="4"
+            placeholder="A sleepy orange cat hugging a tiny espresso, painted like a 1960s travel poster…"
+          ></textarea>
+          <p class="field-hint">If you describe a style here, it overrides the preset below.</p>
+        </section>
+
+        <section class="panel styles-panel" aria-labelledby="styles-title">
+          <div class="section-heading">
+            <div>
+              <p class="step-label">03 · Look</p>
+              <h3 id="styles-title">Choose a style</h3>
+            </div>
+            <span class="optional-label">Optional</span>
+          </div>
+          <div id="style-grid" class="style-grid" role="radiogroup" aria-label="Sticker style">
+            <div class="style-skeleton"></div>
+            <div class="style-skeleton"></div>
+            <div class="style-skeleton"></div>
+            <div class="style-skeleton"></div>
+          </div>
+        </section>
+
+        <p id="form-error" class="form-error" role="alert" hidden></p>
+
+        <div class="generate-dock">
+          <button id="generate-button" class="generate-button" type="submit">
+            <span>Create sticker</span>
+            <span class="button-arrow" aria-hidden="true">↗</span>
+          </button>
+          <p>Generated with your linked Codex account</p>
+        </div>
+      </form>
+    </main>
+
+    <section id="generation-sheet" class="generation-sheet" aria-modal="true" role="dialog" aria-labelledby="generation-title" hidden>
+      <div class="sheet-scrim"></div>
+      <div class="sheet-card">
+        <div id="generation-visual" class="generation-visual" aria-hidden="true">
+          <div class="orbit orbit-one"></div>
+          <div class="orbit orbit-two"></div>
+          <div class="generation-spark">✦</div>
+        </div>
+
+        <div id="progress-content">
+          <p class="step-label">Sticker workshop</p>
+          <h2 id="generation-title">Bringing it to life…</h2>
+          <p id="generation-status">Preparing your request</p>
+          <div class="progress-track" role="progressbar" aria-label="Sticker generation progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
+          <div class="progress-meta">
+            <strong id="progress-percent">0%</strong>
+            <span id="progress-eta">ETA ~1m 20s</span>
+          </div>
+        </div>
+
+        <div id="result-content" class="result-content" hidden>
+          <p class="step-label">Finished</p>
+          <h2>Your sticker is ready.</h2>
+          <p>It has been sent to your Telegram chat.</p>
+          <div class="result-preview-wrap">
+            <img id="result-preview" alt="Generated sticker">
+          </div>
+          <div class="result-actions">
+            <button id="make-another" class="secondary-button" type="button">Make another</button>
+            <button id="close-app" class="generate-button compact" type="button">Back to Telegram</button>
+          </div>
+        </div>
+
+        <div id="generation-error" class="generation-error" hidden>
+          <span class="error-mark" aria-hidden="true">!</span>
+          <p class="step-label">Something went wrong</p>
+          <h2>That sticker did not make it.</h2>
+          <p id="generation-error-message">Please try again.</p>
+          <button id="try-again" class="generate-button compact" type="button">Try again</button>
+        </div>
+      </div>
+    </section>
+
+    <script type="module" src="/app/app.js"></script>
+  </body>
+</html>

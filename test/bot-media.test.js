@@ -363,3 +363,59 @@ test("keeps presets out of groups and consumes them once for private text or exi
     [100, 101, 102, 104],
   );
 });
+
+test("offers an unstyled private sticker to the Mini App as an owned draft", async () => {
+  const handlers = new Map();
+  const replies = [];
+  const createdDrafts = [];
+  const bot = {
+    api: {},
+    command() {},
+    callbackQuery() {},
+    on(event, handler) {
+      handlers.set(Array.isArray(event) ? event.join(",") : event, handler);
+    },
+  };
+  const userStore = {
+    get() {
+      return { sessionToken: "encrypted-session" };
+    },
+  };
+  registerBotHandlers({
+    bot,
+    userStore,
+    authService: {},
+    async downloadTelegramFile() {},
+    miniAppUrl: "https://stickers.example/app",
+    miniAppDraftStore: {
+      create(draft) {
+        createdDrafts.push(draft);
+        return { ...draft, id: "12345678-1234-1234-1234-123456789abc" };
+      },
+    },
+  });
+
+  await handlers.get("message:sticker")({
+    from: { id: 123 },
+    chat: { id: 123, type: "private" },
+    message: {
+      message_id: 456,
+      sticker: { file_id: "telegram-sticker", is_animated: false, is_video: false },
+    },
+    async reply(text, options) {
+      replies.push({ text, options });
+    },
+  });
+
+  assert.deepEqual(createdDrafts, [{
+    userId: "123",
+    fileId: "telegram-sticker",
+    chatId: 123,
+    messageId: 456,
+  }]);
+  assert.equal(replies[0].options.reply_parameters.message_id, 456);
+  assert.equal(
+    replies[0].options.reply_markup.inline_keyboard[0][0].web_app.url,
+    "https://stickers.example/app?draft=12345678-1234-1234-1234-123456789abc",
+  );
+});

@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { Bot, webhookCallback } from "grammy";
 import { AuthService, createDevelopmentSecret } from "./auth.js";
 import { registerBotHandlers } from "./bot.js";
+import { MiniAppDraftStore } from "./miniapp-drafts.js";
+import { createMiniAppService } from "./miniapp.js";
 import { UserStore } from "./store.js";
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -20,11 +22,14 @@ if (!process.env.SESSION_SECRET) console.warn("SESSION_SECRET is not set; sessio
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dataDir = process.env.DATA_DIR || path.join(root, "data");
+const miniAppUrl = process.env.MINI_APP_URL || `${publicBaseUrl}/app`;
+if (new URL(miniAppUrl).protocol !== "https:") throw new Error("MINI_APP_URL must use HTTPS");
 const store = new UserStore(path.join(dataDir, "users.json"));
 await store.init();
 
 const authService = new AuthService({ secret });
 const bot = new Bot(token);
+const miniAppDraftStore = new MiniAppDraftStore();
 
 async function downloadTelegramFile(fileId) {
   const file = await bot.api.getFile(fileId);
@@ -34,11 +39,23 @@ async function downloadTelegramFile(fileId) {
   return Buffer.from(await response.arrayBuffer());
 }
 
-registerBotHandlers({
+const botHandlers = registerBotHandlers({
   bot,
   authService,
   userStore: store,
   downloadTelegramFile,
+  estimatedGenerationMs: Number(process.env.GENERATION_ETA_MS || 80_000),
+  miniAppUrl,
+  miniAppDraftStore,
+});
+
+const miniApp = createMiniAppService({
+  bot,
+  botToken: token,
+  draftStore: miniAppDraftStore,
+  downloadTelegramFile,
+  loadCredentials: botHandlers.loadCredentials,
+  webRoot: path.join(root, "web"),
   estimatedGenerationMs: Number(process.env.GENERATION_ETA_MS || 80_000),
 });
 
@@ -46,7 +63,7 @@ bot.catch((error) => console.error("telegram update failed", error));
 
 const port = Number(process.env.PORT || 3000);
 const handleUpdate = webhookCallback(bot, "http", { secretToken: webhookSecret });
-const server = createServer((request, response) => {
+async function routeRequest(request, response) {
   if (request.url === "/healthz") {
     response.writeHead(200, { "Content-Type": "application/json" });
     response.end(JSON.stringify({ ok: true, service: "codex-telegram-sticker-bot" }));
@@ -62,8 +79,17 @@ const server = createServer((request, response) => {
     });
     return;
   }
+  if (await miniApp.handleRequest(request, response)) return;
   response.writeHead(404);
   response.end("not found");
+}
+
+const server = createServer((request, response) => {
+  routeRequest(request, response).catch((error) => {
+    console.error("http request failed", error);
+    if (!response.headersSent) response.writeHead(500, { "Content-Type": "text/plain" });
+    response.end("internal error");
+  });
 });
 server.listen(port, "0.0.0.0", () => console.log(`Health endpoint listening on ${port}`));
 
@@ -75,6 +101,7 @@ await bot.api.setWebhook(`${publicBaseUrl}${webhookPath}`, {
 console.log(`Telegram webhook configured at ${publicBaseUrl}${webhookPath}`);
 
 await bot.api.setMyCommands([
+  { command: "app", description: "Open the visual sticker studio" },
   { command: "sticker", description: "Create a sticker from a description" },
   { command: "edit", description: "Edit a replied-to sticker or photo" },
   { command: "style", description: "Choose a style for your next sticker" },
@@ -84,3 +111,12 @@ await bot.api.setMyCommands([
   { command: "help", description: "Show usage help" },
 ]);
 console.log("Telegram command menu configured");
+
+await bot.api.setChatMenuButton({
+  menu_button: {
+    type: "web_app",
+    text: "Create sticker",
+    web_app: { url: miniAppUrl },
+  },
+});
+console.log(`Telegram Mini App menu configured at ${miniAppUrl}`);

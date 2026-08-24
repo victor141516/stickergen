@@ -27,6 +27,7 @@ StickerGen links each Telegram user to their own OpenAI/Codex session, generates
 | 📸 | Transform photos, image documents, and existing stickers |
 | 🧑‍🎨 | Follow style instructions such as pixel art, comic, watercolor, or Paint |
 | 🎛️ | Pick an optional one-use style preset from the private-chat interface |
+| 📱 | Use a visual Telegram Mini App with uploads, style cards, live progress, and previews |
 | 🫥 | Preserve the alpha channel when OpenAI returns real transparency |
 | 👥 | Work in groups through commands, replies, and mentions |
 | ⚡ | Generate in any chat with `@stickergen_miramacho_bot <prompt>` |
@@ -66,6 +67,14 @@ Choose **Generate sticker**, tap the placeholder button, and wait for the result
 In the private chat, use `/style` or the **Choose style** button to select a preset for the next sticker. Then send a text prompt, photo, or existing static sticker. The preset is consumed by that request and then automatically resets to **No preset**. A style explicitly written in the new prompt always takes priority over the selected preset, so free-form prompts remain fully supported.
 
 The six initial presets range from a modern sticker treatment to classic print, animation, engraving, and Game Boy Advance-era artwork. Their order, button labels, descriptions, and prompt instructions all live in [`src/styles.json`](src/styles.json), making the catalog easy to revise without changing the selector code. Presets intentionally apply only to private-chat requests; groups and inline mode continue to use the style written directly in each prompt.
+
+### 📱 Telegram Mini App
+
+Use `/app`, the **Open StickerGen** button, or the bot's menu button to launch the visual studio inside Telegram. The Mini App supports a free-form prompt, the same JSON-defined style presets, PNG/JPG/WebP uploads, live SSE progress, and an in-app preview. The finished WebP is also sent to the user's private Telegram chat as a native sticker.
+
+To restyle an existing static Telegram sticker, send it to the bot without first selecting a one-use chat preset. StickerGen replies with **Edit in StickerGen** and creates a temporary in-process draft bound to that Telegram user. The Mini App can then display the source, apply a preset or free-form style, and reply to the original sticker. Drafts and generated previews expire after one hour and are not persisted or queued.
+
+Every Mini App API request validates the signed `Telegram.WebApp.initData` server-side before using its Telegram user ID to load the existing encrypted Codex session. Uploaded image bytes, generated previews, draft file identifiers, and jobs remain in memory only. Several users and several requests from one user can generate concurrently.
 
 ## 🧠 How it works
 
@@ -123,6 +132,7 @@ Complete `.env` before starting the application:
 | `TELEGRAM_BOT_TOKEN` | Token issued by BotFather |
 | `SESSION_SECRET` | Stable secret used to encrypt sessions |
 | `PUBLIC_BASE_URL` | Public HTTPS origin for the webhook |
+| `MINI_APP_URL` | HTTPS URL of the Mini App; defaults to `PUBLIC_BASE_URL/app` |
 | `TELEGRAM_WEBHOOK_SECRET` | Secret used to authenticate Telegram webhook calls |
 | `CODEX_MODEL` | Primary model that orchestrates image generation |
 | `GENERATION_ETA_MS` | Initial generation estimate used by the progress bar |
@@ -156,10 +166,17 @@ src/
 ├── bot.js        # commands, mentions, inline mode, and jobs
 ├── codex.js      # Responses client and SSE parser
 ├── index.js      # HTTP server and Telegram webhook
+├── miniapp.js    # Mini App HTTP API, SSE jobs, and static asset serving
+├── miniapp-auth.js # Telegram initData signature validation
+├── miniapp-drafts.js # temporary user-bound Telegram sticker drafts
 ├── stickers.js   # Telegram-compatible conversion
 ├── styles.js     # preset loading and prompt precedence
 ├── styles.json   # editable style catalog and button copy
 └── store.js      # session storage
+web/
+├── index.html    # Mini App editor
+├── app.js        # Telegram bridge and interactive workflow
+└── styles.css    # responsive Telegram-themed interface
 ```
 
 Development rules for assistants and contributors are documented in [AGENTS.md](AGENTS.md). StickerGen is available under the [MIT License](LICENSE.md).

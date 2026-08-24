@@ -18,6 +18,9 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 
 - `src/index.js`: HTTP health endpoint, Telegram webhook, and update registration.
 - `src/bot.js`: bot commands, media routing, mentions, inline placeholders, generation jobs, and user-visible messages.
+- `src/miniapp.js`: Mini App assets/API, concurrent generation jobs, SSE progress, and result delivery.
+- `src/miniapp-auth.js`: Telegram `initData` signature and freshness validation.
+- `src/miniapp-drafts.js`: temporary user-bound references to Telegram sticker sources.
 - `src/auth.js`: Codex device login, refresh, identity extraction, and encrypted JWE sessions.
 - `src/codex.js`: private Codex Responses request and JSON/SSE response parsing.
 - `src/stickers.js`: image decoding and the technical WebP conversion required by Telegram.
@@ -25,6 +28,7 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - `src/styles.js`: style catalog validation and user-prompt precedence.
 - `src/store.js`: JSON-backed per-Telegram-user session store.
 - `test/`: Node test-runner coverage for the modules above.
+- `web/`: dependency-free Telegram Mini App frontend served by the bot process.
 
 ## Behavioral invariants
 
@@ -43,6 +47,9 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 - Keep each request's progress message updating independently, cap estimated progress at 90% until completion, and stop its timer on every success or failure path.
 - Keep style presets optional and one-use. Apply them only to private-chat requests, and always give an explicit style in the current user prompt priority over the preset.
 - Accept a static sticker sent directly in private chat as a source image so a selected preset can restyle it. Do not intercept standalone stickers in groups.
+- Validate Mini App `initData` on every protected API request and bind jobs, drafts, previews, and Telegram file identifiers to the validated user ID.
+- Keep Mini App jobs concurrent and in-process. Stream progress with SSE; do not introduce a queue, worker, or external persistence service.
+- Never put Mini App `initData`, source images, output images, Telegram file identifiers, or Codex credentials in URLs or logs.
 
 ## Style
 
@@ -72,5 +79,6 @@ Run `npm test` after every behavioral change. Do not run `src/e2e-test.js` unles
 ## Documentation and deployment
 
 - Keep `README.md`, `.env.example`, and `DEPLOY.md` aligned with user-visible behavior and configuration.
+- Configure the Bot API menu button from code when the Mini App is enabled. Treat BotFather's Main Mini App/profile configuration as a separate manual operation.
 - Follow `DEPLOY.md` for the original Docker/Caddy deployment, plus any instructions present on the target host.
 - The user has given standing authorization to deploy every completed and verified code change to the existing production service. Do not mutate the webhook, reverse proxy, or secrets unless the user explicitly requests that separate change.

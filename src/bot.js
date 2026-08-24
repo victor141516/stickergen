@@ -10,6 +10,7 @@ const HELP = [
   "/login — link your OpenAI/Codex account",
   "/sticker <description> — create a sticker",
   "/edit <change> — reply to a sticker or photo to edit it",
+  "/app — open the visual sticker studio",
   "/style — choose an optional style for your next sticker",
   "/whoami — show the linked account",
   "/logout — remove your session from this bot",
@@ -31,13 +32,24 @@ const DEFAULT_GENERATION_ETA_MS = 80_000;
 const PROGRESS_INTERVAL_MS = 8_000;
 const PROGRESS_BLOCKS = 10;
 
-function startKeyboard() {
+function startKeyboard(miniAppUrl = null) {
+  const rows = [];
+  if (miniAppUrl) {
+    rows.push([{ text: "✦ Open StickerGen", web_app: { url: miniAppUrl } }]);
+  }
+  rows.push([
+    { text: "🎨 Choose style", callback_data: "style:open" },
+    { text: "ℹ️ Help", callback_data: "help:open" },
+  ]);
   return {
-    inline_keyboard: [[
-      { text: "🎨 Choose style", callback_data: "style:open" },
-      { text: "ℹ️ Help", callback_data: "help:open" },
-    ]],
+    inline_keyboard: rows,
   };
+}
+
+function miniAppDraftUrl(miniAppUrl, draftId) {
+  const url = new URL(miniAppUrl);
+  url.searchParams.set("draft", draftId);
+  return url.toString();
 }
 
 function styleKeyboard(selectedId = null) {
@@ -262,6 +274,8 @@ export function registerBotHandlers({
   sourceToDataUrl = stickerDataUrl,
   logger = console,
   estimatedGenerationMs = DEFAULT_GENERATION_ETA_MS,
+  miniAppUrl = null,
+  miniAppDraftStore = null,
 }) {
   const pendingLogins = new Map();
   const inlineJobs = new Map();
@@ -537,7 +551,9 @@ export function registerBotHandlers({
       "",
       `Style: ${selectedPreset?.name || "No preset"} · your prompt decides`,
       inlineHint,
-    ].join("\n"), { reply_markup: startKeyboard() });
+    ].join("\n"), {
+      reply_markup: startKeyboard(ctx.chat.type === "private" ? miniAppUrl : null),
+    });
   });
   bot.command("help", (ctx) => ctx.reply(HELP));
   bot.command("login", async (ctx) => {
@@ -581,6 +597,22 @@ export function registerBotHandlers({
     await ctx.reply(`Linked account: ${record.identity.email || "email unavailable"}${record.identity.plan ? ` (${record.identity.plan})` : ""}`);
   });
 
+  bot.command("app", async (ctx) => {
+    if (ctx.chat.type !== "private") {
+      await ctx.reply("Open my private chat to use the StickerGen Mini App.");
+      return;
+    }
+    if (!miniAppUrl) {
+      await ctx.reply("The StickerGen Mini App is not configured yet.");
+      return;
+    }
+    await ctx.reply("Open the sticker studio to create from a prompt, upload an image, or choose a style.", {
+      reply_markup: {
+        inline_keyboard: [[{ text: "✦ Open StickerGen", web_app: { url: miniAppUrl } }]],
+      },
+    });
+  });
+
   bot.command("style", async (ctx) => {
     if (ctx.chat.type !== "private") {
       await ctx.reply("Style presets can be selected in my private chat. Group and inline requests use the style written in their prompt.");
@@ -595,7 +627,9 @@ export function registerBotHandlers({
 
   bot.callbackQuery("help:open", async (ctx) => {
     await ctx.answerCallbackQuery();
-    await ctx.editMessageText(HELP, { reply_markup: startKeyboard() });
+    await ctx.editMessageText(HELP, {
+      reply_markup: startKeyboard(ctx.chat?.type === "private" ? miniAppUrl : null),
+    });
   });
 
   bot.callbackQuery("style:open", async (ctx) => {
@@ -648,7 +682,7 @@ export function registerBotHandlers({
   bot.callbackQuery("style:close", async (ctx) => {
     await ctx.answerCallbackQuery();
     await ctx.editMessageText("Style selector closed. Send a prompt or photo whenever you are ready.", {
-      reply_markup: startKeyboard(),
+      reply_markup: startKeyboard(miniAppUrl),
     });
   });
 
@@ -773,8 +807,32 @@ export function registerBotHandlers({
       await ctx.reply("I can currently restyle static stickers only. Send a static sticker, or use a still image from this one.");
       return;
     }
+    const id = userId(ctx);
+    const record = userStore.get(id);
+    if (miniAppUrl && miniAppDraftStore && !record?.stylePresetId) {
+      if (!record?.sessionToken) {
+        await sendLoginRequired(ctx);
+        return;
+      }
+      const draft = miniAppDraftStore.create({
+        userId: id,
+        fileId: ctx.message.sticker.file_id,
+        chatId: ctx.chat.id,
+        messageId: ctx.message.message_id,
+      });
+      await ctx.reply("Choose a new style, add optional instructions, and restyle this sticker in the Mini App.", {
+        ...replyOptions(ctx.message.message_id),
+        reply_markup: {
+          inline_keyboard: [[{
+            text: "✦ Edit in StickerGen",
+            web_app: { url: miniAppDraftUrl(miniAppUrl, draft.id) },
+          }]],
+        },
+      });
+      return;
+    }
     await createSticker(ctx, DEFAULT_STICKER_RESTYLE_PROMPT, ctx.message.sticker.file_id);
   });
 
-  return { pendingLogins, inlineJobs };
+  return { pendingLogins, inlineJobs, loadCredentials };
 }
